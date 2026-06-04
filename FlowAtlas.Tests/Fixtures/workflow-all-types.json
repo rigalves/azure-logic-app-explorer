@@ -1,0 +1,162 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Call_External_API": {
+        "type": "Http",
+        "inputs": {
+          "uri": "https://api.contoso.com/orders",
+          "method": "POST"
+        }
+      },
+      "Call_API_via_Expression": {
+        "type": "Http",
+        "inputs": {
+          "uri": "@{parameters('baseUrl')}/patients",
+          "method": "GET"
+        }
+      },
+      "Call_Azure_Function": {
+        "type": "Function",
+        "inputs": {
+          "function": {
+            "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/sites/func-app-orders/functions/ProcessOrder"
+          }
+        }
+      },
+      "Sync_to_Salesforce": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "salesforce"
+            }
+          },
+          "method": "post",
+          "path": "/datasets/default/tables/@{encodeURIComponent('Account')}/items"
+        }
+      },
+      "Send_Email": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "office365"
+            }
+          },
+          "method": "post",
+          "path": "/v2/Mail"
+        }
+      },
+      "Send_Service_Bus_Message": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "entityName": "orders-queue",
+            "message": { "contentData": "@body('Compose')" }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "serviceBusConn",
+            "operationId": "sendMessage",
+            "serviceProviderId": "/serviceProviders/serviceBus"
+          }
+        }
+      },
+      "Call_Child_Workflow": {
+        "type": "Workflow",
+        "inputs": {
+          "host": {
+            "workflow": {
+              "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/sites/lapp-orders/workflows/wf-validate-order"
+            }
+          }
+        }
+      },
+      "Scoped_Block": {
+        "type": "Scope",
+        "actions": {
+          "Nested_HTTP_in_Scope": {
+            "type": "Http",
+            "inputs": {
+              "uri": "https://nested.api.example.com/data",
+              "method": "GET"
+            }
+          }
+        }
+      },
+      "Conditional_Branch": {
+        "type": "If",
+        "expression": { "equals": ["@triggerBody()?['status']", "active"] },
+        "actions": {
+          "HTTP_in_True_Branch": {
+            "type": "Http",
+            "inputs": {
+              "uri": "https://active.api.example.com/notify",
+              "method": "POST"
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "HTTP_in_Else_Branch": {
+              "type": "Http",
+              "inputs": {
+                "uri": "https://inactive.api.example.com/archive",
+                "method": "POST"
+              }
+            }
+          }
+        }
+      },
+      "Loop_Over_Items": {
+        "type": "Foreach",
+        "foreach": "@triggerBody()?['items']",
+        "actions": {
+          "HTTP_in_Loop": {
+            "type": "Http",
+            "inputs": {
+              "uri": "https://items.api.example.com/process",
+              "method": "PUT"
+            }
+          }
+        }
+      },
+      "Switch_On_Type": {
+        "type": "Switch",
+        "expression": "@triggerBody()?['type']",
+        "cases": {
+          "Case_Order": {
+            "case": "order",
+            "actions": {
+              "HTTP_in_Switch_Case": {
+                "type": "Http",
+                "inputs": {
+                  "uri": "https://orders.api.example.com/create",
+                  "method": "POST"
+                }
+              }
+            }
+          }
+        },
+        "default": {
+          "actions": {
+            "HTTP_in_Switch_Default": {
+              "type": "Http",
+              "inputs": {
+                "uri": "https://default.api.example.com/fallback",
+                "method": "POST"
+              }
+            }
+          }
+        }
+      }
+    },
+    "triggers": {
+      "When_HTTP_request_received": {
+        "type": "Request",
+        "kind": "Http"
+      }
+    }
+  },
+  "kind": "Stateful"
+}

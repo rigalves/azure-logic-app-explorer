@@ -1,0 +1,136 @@
+@page "/probe"
+@rendermode InteractiveServer
+@using FlowAtlas.Azure
+@using Microsoft.Extensions.Options
+@inject AzureLogicAppClient Client
+@inject IOptions<FlowAtlasOptions> Opts
+
+<PageTitle>FlowAtlas – Azure Access Probe</PageTitle>
+
+<h1>Azure Access Probe</h1>
+<p>Verifies that the running identity can read all required artifacts from Azure. Run this before using the main explorer.</p>
+
+<p>
+    <strong>Subscription:</strong> @_opts.SubscriptionId<br />
+    <strong>Resource Group:</strong> @_opts.ResourceGroup<br />
+    <strong>API Version:</strong> @_opts.HostRuntimeApiVersion
+</p>
+
+@if (string.IsNullOrWhiteSpace(_opts.SubscriptionId) || string.IsNullOrWhiteSpace(_opts.ResourceGroup))
+{
+    <div class="alert alert-danger">
+        ⚠ <strong>Config missing.</strong> Set <code>FlowAtlas:SubscriptionId</code> and <code>FlowAtlas:ResourceGroup</code> in appsettings.json or environment variables.
+    </div>
+}
+else
+{
+    <button class="btn btn-primary" @onclick="RunProbe" disabled="@_running">
+        @(_running ? "Running…" : "Run Probe")
+    </button>
+}
+
+@if (_results.Count > 0)
+{
+    <hr />
+    <h3>Results</h3>
+    @foreach (var r in _results)
+    {
+        <div class="mb-2 p-2 border rounded @(r.Pass ? "border-success bg-success bg-opacity-10" : "border-danger bg-danger bg-opacity-10")">
+            <strong>@(r.Pass ? "✅" : "❌") @r.Label</strong>
+            @if (!string.IsNullOrEmpty(r.Detail))
+            {
+                <pre class="mt-1 mb-0 small">@r.Detail</pre>
+            }
+        </div>
+    }
+}
+
+@code {
+    private FlowAtlasOptions _opts => Opts.Value;
+    private bool _running;
+    private List<ProbeResult> _results = new();
+
+    private async Task RunProbe()
+    {
+        _running = true;
+        _results.Clear();
+        StateHasChanged();
+
+        // Probe A – list Standard logic apps
+        string? firstApp = null;
+        string? firstWorkflow = null;
+        try
+        {
+            var apps = await Client.ListStandardLogicAppsAsync();
+            firstApp = apps.FirstOrDefault().Name;
+            var detail = string.Join("\n", apps.Select(a => $"  {a.Name}  (kind: {a.Kind})"));
+            _results.Add(new(true, "Probe A – List Standard Logic Apps",
+                apps.Count == 0 ? "(no Standard logic apps found in RG — check kind filter)" : detail));
+        }
+        catch (Exception ex)
+        {
+            _results.Add(new(false, "Probe A – List Standard Logic Apps", ex.Message));
+        }
+
+        // Probe B – list workflows via management API
+        if (firstApp is not null)
+        {
+            try
+            {
+                var workflows = await Client.ListWorkflowsAsync(firstApp);
+                firstWorkflow = workflows.FirstOrDefault();
+                _results.Add(new(true, $"Probe B – List workflows for '{firstApp}'",
+                    workflows.Count == 0
+                        ? "(no workflows found)"
+                        : string.Join("\n", workflows.Select(w => $"  {w}"))));
+            }
+            catch (Exception ex)
+            {
+                _results.Add(new(false, $"Probe B – List workflows for '{firstApp}'", ex.Message));
+            }
+        }
+        else
+        {
+            _results.Add(new(false, "Probe B – skipped", "No Standard logic app found from Probe A."));
+        }
+
+        // Probe C – read workflow.json
+        if (firstApp is not null && firstWorkflow is not null)
+        {
+            try
+            {
+                var wfDoc = await Client.GetWorkflowJsonAsync(firstApp, firstWorkflow);
+                var preview = wfDoc is not null
+                    ? wfDoc.RootElement.GetRawText()[..Math.Min(400, wfDoc.RootElement.GetRawText().Length)] + "…"
+                    : "(null returned — 404)";
+                _results.Add(new(wfDoc is not null, $"Probe C – workflow.json for '{firstApp}/{firstWorkflow}'", preview));
+            }
+            catch (Exception ex)
+            {
+                _results.Add(new(false, $"Probe C – workflow.json for '{firstApp}/{firstWorkflow}'", ex.Message));
+            }
+        }
+        else
+        {
+            _results.Add(new(false, "Probe C – skipped", "No workflow folder found from Probe B."));
+        }
+
+        // Probe D – list managed API connections in the resource group
+        try
+        {
+            var connections = await Client.ListManagedConnectionsAsync();
+            var detail = connections.Count == 0
+                ? "(no managed API connections found — RG may use only built-in connectors)"
+                : string.Join("\n", connections.Select(c => $"  {c.Name}  →  {c.ApiId}"));
+            _results.Add(new(true, $"Probe D – Managed connections in RG ({connections.Count})", detail));
+        }
+        catch (Exception ex)
+        {
+            _results.Add(new(false, "Probe D – Managed connections in RG", ex.Message));
+        }
+
+        _running = false;
+    }
+
+    private record ProbeResult(bool Pass, string Label, string Detail = "");
+}

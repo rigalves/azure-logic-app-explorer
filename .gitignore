@@ -1,0 +1,33 @@
+# .NET build output
+obj/
+bin/
+*.user
+*.suo
+.vs/
+.vscode/.cacheDirTag
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+# Runtime / data
+data/
+**/data/snapshot.json
+
+# Local config overrides with real Azure values
+FlowAtlas.IntegrationTests/appsettings.json
+**/appsettings.local.json
+**/appsettings.*.local.json
+**/local.settings.json
+
+# ASP.NET
+wwwroot/dist/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

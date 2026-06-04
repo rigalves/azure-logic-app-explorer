@@ -1,0 +1,40 @@
+{
+  "managedApiConnections": {
+    "salesforce": {
+      "api": {
+        "id": "/subscriptions/sub-123/providers/Microsoft.Web/locations/eastus/managedApis/salesforce"
+      },
+      "connection": {
+        "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/connections/salesforce-prod"
+      },
+      "authentication": { "type": "ManagedServiceIdentity" }
+    },
+    "office365": {
+      "api": {
+        "id": "/subscriptions/sub-123/providers/Microsoft.Web/locations/eastus/managedApis/office365"
+      },
+      "connection": {
+        "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/connections/office365-1"
+      }
+    }
+  },
+  "serviceProviderConnections": {
+    "serviceBusConn": {
+      "parameterValues": {
+        "connectionString": "@appsetting('ServiceBus_ConnectionString')"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/serviceBus"
+      },
+      "displayName": "orders-servicebus"
+    }
+  },
+  "functionConnections": {
+    "funcConn": {
+      "function": {
+        "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/sites/func-app-orders/functions/ProcessOrder"
+      },
+      "triggerUrl": "@appsetting('func-app-orders_ProcessOrder_Trigger_Url')"
+    }
+  }
+}

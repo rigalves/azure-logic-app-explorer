@@ -1,0 +1,8 @@
+{
+  "baseUrl": {
+    "value": "https://api.external.com"
+  },
+  "appsettingRef": {
+    "value": "@appsettings('SOME_API_URL')"
+  }
+}
