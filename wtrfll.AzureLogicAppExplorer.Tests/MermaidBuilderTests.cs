@@ -60,8 +60,8 @@ public class MermaidBuilderTests
                         IsStateful = true,
                         Edges =
                         [
-                            new CallEdge("Send_SB", CallType.ServiceProvider,
-                                new ExternalTarget(CallType.ServiceProvider, "Service Bus")),
+                            new CallEdge("Send_SB", CallType.ServiceBus,
+                                new ExternalTarget(CallType.ServiceBus, "orders-queue")),
                         ],
                     },
                 ],
@@ -284,6 +284,133 @@ public class MermaidBuilderTests
         var empty = new Inventory { ScannedAt = DateTimeOffset.UtcNow, LogicApps = [] };
         var mmd = _builder.Build(empty, DiagramMode.Detail);
         Assert.Contains("No logic apps found", mmd);
+    }
+
+    // ── Service Bus chain ─────────────────────────────────────────────────────
+
+    private static Inventory SbChainInventory() => new()
+    {
+        ScannedAt = DateTimeOffset.UtcNow,
+        LogicApps =
+        [
+            new LogicAppInfo
+            {
+                Name = "lapp-sender",
+                Workflows =
+                [
+                    new WorkflowInfo
+                    {
+                        Name = "wf-publish",
+                        LogicAppName = "lapp-sender",
+                        IsStateful = true,
+                        Edges =
+                        [
+                            new CallEdge("Send_Message", CallType.ServiceBus,
+                                new ExternalTarget(CallType.ServiceBus, "orders-queue")),
+                        ],
+                    },
+                ],
+            },
+            new LogicAppInfo
+            {
+                Name = "lapp-receiver",
+                Workflows =
+                [
+                    new WorkflowInfo
+                    {
+                        Name = "wf-process",
+                        LogicAppName = "lapp-receiver",
+                        IsStateful = true,
+                        Edges = [],
+                        Trigger = new TriggerInfo("ServiceBus", "orders-queue"),
+                    },
+                ],
+            },
+        ],
+    };
+
+    [Fact]
+    public void Detail_ServiceBusChain_SenderAndReceiverLinkedThroughQueue()
+    {
+        var mmd = _builder.Build(SbChainInventory(), DiagramMode.Detail);
+
+        // Both workflow nodes must be present
+        Assert.Contains("wf-publish", mmd);
+        Assert.Contains("wf-process", mmd);
+
+        // The shared SB queue node must be present
+        Assert.Contains("orders-queue", mmd);
+        Assert.Contains(":::servicebus", mmd);
+
+        // Sender workflow → SB node
+        var lines = mmd.Split('\n');
+        Assert.True(lines.Any(l => l.Contains("wf_") && l.Contains("-->") && l.Contains("t_ServiceBus")),
+            "Expected a sender → SB edge");
+
+        // SB node → receiver workflow
+        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-->") && l.Contains("wf_")),
+            "Expected a SB → receiver edge");
+    }
+
+    [Fact]
+    public void Summary_ServiceBusChain_BothAppsLinkedThroughQueue()
+    {
+        var mmd = _builder.Build(SbChainInventory(), DiagramMode.Summary);
+
+        Assert.Contains("lapp-sender", mmd);
+        Assert.Contains("lapp-receiver", mmd);
+        Assert.Contains("orders-queue", mmd);
+        Assert.Contains(":::servicebus", mmd);
+
+        var lines = mmd.Split('\n');
+        // Sender app → SB node
+        Assert.True(lines.Any(l => l.Contains("app_lapp_sender") && l.Contains("-->") && l.Contains("t_ServiceBus")),
+            "Expected sender app → SB edge");
+        // SB node → receiver app
+        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-->") && l.Contains("app_lapp_receiver")),
+            "Expected SB → receiver app edge");
+    }
+
+    [Fact]
+    public void Detail_SbTriggeredWorkflow_WithNoSenderInFilter_StillShowsSbNode()
+    {
+        // Only the receiver app is in the inventory (sender filtered out)
+        var receiverOnly = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-receiver",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-process",
+                            LogicAppName = "lapp-receiver",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-queue"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(receiverOnly, DiagramMode.Detail);
+
+        // SB node declared even though no outbound edge points to it
+        Assert.Contains("orders-queue", mmd);
+        Assert.Contains(":::servicebus", mmd);
+        // Reverse edge exists
+        Assert.Contains("-->", mmd);
+    }
+
+    [Fact]
+    public void Summary_ContainsClassDefs_IncludingServiceBus()
+    {
+        var mmd = _builder.Build(SbChainInventory(), DiagramMode.Summary);
+        Assert.Contains("classDef servicebus", mmd);
     }
 
     // ── Node ID safety ────────────────────────────────────────────────────────

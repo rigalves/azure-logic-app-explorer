@@ -29,6 +29,7 @@ public sealed partial class MermaidBuilder
         [CallType.Salesforce]       = "salesforce",
         [CallType.ManagedConnector] = "managed",
         [CallType.ServiceProvider]  = "serviceprovider",
+        [CallType.ServiceBus]       = "servicebus",
         [CallType.ChildWorkflow]    = "childwf",
         [CallType.Unknown]          = "http",
     };
@@ -40,6 +41,7 @@ public sealed partial class MermaidBuilder
         [CallType.Salesforce]       = "Salesforce",
         [CallType.ManagedConnector] = "Managed Connector",
         [CallType.ServiceProvider]  = "Built-in Connector",
+        [CallType.ServiceBus]       = "Service Bus",
         [CallType.ChildWorkflow]    = "Child Workflow",
         [CallType.Unknown]          = "HTTP",
     };
@@ -53,6 +55,7 @@ public sealed partial class MermaidBuilder
         classDef funcapp       fill:#198754,color:#fff,stroke:#146c43
         classDef managed       fill:#6f42c1,color:#fff,stroke:#5a2d91
         classDef serviceprovider fill:#fd7e14,color:#000,stroke:#d45e00
+        classDef servicebus    fill:#f0ad4e,color:#000,stroke:#ec971f,stroke-width:2px
         classDef childwf       fill:#20c997,color:#000,stroke:#17a589
     """;
 
@@ -69,7 +72,13 @@ public sealed partial class MermaidBuilder
         var sb = new StringBuilder("flowchart LR\n");
         var registry = new TargetRegistry();
 
-        // Declare Logic App nodes + register their targets
+        // Pre-register SB trigger nodes so they appear even when no sender is in the filter
+        foreach (var app in inventory.LogicApps)
+            foreach (var wf in app.Workflows)
+                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+
+        // Declare Logic App nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
         {
             var appId = SafeId("app", app.Name);
@@ -87,7 +96,7 @@ public sealed partial class MermaidBuilder
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Edges — deduplicated per (app, target)
+        // Outbound edges — deduplicated per (app, target)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
@@ -99,6 +108,20 @@ public sealed partial class MermaidBuilder
                     var targetId = registry.TryGetId(edge.Target);
                     if (targetId is not null && seen.Add(targetId))
                         sb.AppendLine($"    {appId} --> {targetId}");
+                }
+        }
+
+        // Trigger reverse edges: SB → Logic App — deduplicated per (app, SB)
+        foreach (var app in inventory.LogicApps)
+        {
+            var appId = SafeId("app", app.Name);
+            var seen = new HashSet<string>();
+            foreach (var wf in app.Workflows)
+                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                {
+                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                    if (sbId is not null && seen.Add(sbId))
+                        sb.AppendLine($"    {sbId} --> {appId}");
                 }
         }
 
@@ -121,7 +144,13 @@ public sealed partial class MermaidBuilder
         var registry = new TargetRegistry();
         var multiApp = inventory.LogicApps.Count > 1;
 
-        // Declare workflow nodes + register targets
+        // Pre-register SB trigger nodes so they appear even when no sender is in the filter
+        foreach (var app in inventory.LogicApps)
+            foreach (var wf in app.Workflows)
+                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+
+        // Declare workflow nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
         {
             if (app.Workflows.Count > 0)
@@ -138,12 +167,12 @@ public sealed partial class MermaidBuilder
             }
         }
 
-        // Declare target nodes
+        // Declare target nodes (includes pre-registered SB trigger nodes)
         sb.AppendLine();
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Edges — deduplicated per (workflow, target)
+        // Outbound edges — deduplicated per (workflow, target)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
@@ -159,6 +188,17 @@ public sealed partial class MermaidBuilder
                 }
             }
         }
+
+        // Trigger reverse edges: SB → workflow
+        foreach (var app in inventory.LogicApps)
+            foreach (var wf in app.Workflows)
+                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                {
+                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                    var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
+                    if (sbId is not null)
+                        sb.AppendLine($"    {sbId} --> {wfId}");
+                }
 
         sb.Append(ClassDefs);
         return sb.ToString();

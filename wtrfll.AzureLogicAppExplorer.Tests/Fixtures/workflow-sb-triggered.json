@@ -1,0 +1,31 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Call_Downstream_API": {
+        "type": "Http",
+        "inputs": {
+          "uri": "https://downstream.api.example.com/process",
+          "method": "POST"
+        }
+      }
+    },
+    "triggers": {
+      "When_a_message_arrives": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "queueName": "orders-queue",
+            "isSessionsEnabled": false
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "serviceBusConn",
+            "operationId": "receiveMessages",
+            "serviceProviderId": "/serviceProviders/serviceBus"
+          }
+        }
+      }
+    }
+  },
+  "kind": "Stateful"
+}

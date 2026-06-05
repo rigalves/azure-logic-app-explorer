@@ -122,13 +122,47 @@ public class ParserTests
     }
 
     [Fact]
-    public void Parser_ServiceProvider_ServiceBus_IsClassified()
+    public void Parser_ServiceProvider_ServiceBus_ExtractsEntityName()
     {
         var edges = ParseAllTypes();
         var edge = edges.Single(e => e.ActionName == "Send_Service_Bus_Message");
 
-        Assert.Equal(CallType.ServiceProvider, edge.CallType);
-        Assert.Equal("Service Bus", edge.Target.Name);
+        Assert.Equal(CallType.ServiceBus, edge.CallType);
+        Assert.Equal("orders-queue", edge.Target.Name);
+    }
+
+    [Fact]
+    public void ParseTrigger_ServiceBus_ExtractsQueueName()
+    {
+        var (parser, connections) = Setup();
+        var doc = LoadFixture("workflow-sb-triggered.json");
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.NotNull(trigger);
+        Assert.Equal("ServiceBus", trigger.Kind);
+        Assert.Equal("orders-queue", trigger.EntityName);
+    }
+
+    [Fact]
+    public void ParseTrigger_Http_ReturnsHttpKind()
+    {
+        var (parser, connections) = Setup();
+        var doc = LoadFixture("workflow-all-types.json");
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.NotNull(trigger);
+        Assert.Equal("Http", trigger.Kind);
+        Assert.Null(trigger.EntityName);
+    }
+
+    [Fact]
+    public void ParseTrigger_NoTriggers_ReturnsNull()
+    {
+        var (parser, connections) = Setup();
+        var doc = System.Text.Json.JsonDocument.Parse(@"{""definition"":{""actions"":{}}}");
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.Null(trigger);
     }
 
     [Fact]

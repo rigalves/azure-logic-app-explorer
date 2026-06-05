@@ -69,7 +69,7 @@ public sealed partial class WorkflowParser
                     break;
 
                 case "serviceprovider":
-                    edges.Add(ParseServiceProvider(name, node, connections));
+                    edges.Add(ParseServiceProvider(name, node, connections, parameters));
                     break;
 
                 case "workflow":
@@ -174,13 +174,25 @@ public sealed partial class WorkflowParser
             new ExternalTarget(CallType.ManagedConnector, refName ?? "unknown-connection"));
     }
 
-    private static CallEdge ParseServiceProvider(string name, JsonElement node, ConnectionsLookup connections)
+    private static CallEdge ParseServiceProvider(
+        string name, JsonElement node, ConnectionsLookup connections, ParametersLookup parameters)
     {
         if (node.TryGetProperty("inputs", out var inputs) &&
             inputs.TryGetProperty("serviceProviderConfiguration", out var spConfig) &&
             spConfig.TryGetProperty("serviceProviderId", out var spId))
         {
-            var displayName = ConnectionsParser.MapServiceProviderId(spId.GetString());
+            var providerId = spId.GetString() ?? "";
+
+            // Service Bus gets a dedicated CallType so it can link with SB-triggered workflows
+            if (IsServiceBusProviderId(providerId))
+            {
+                var entityName = ExtractSbEntityName(inputs, parameters);
+                if (entityName is not null)
+                    return new CallEdge(name, CallType.ServiceBus,
+                        new ExternalTarget(CallType.ServiceBus, entityName));
+            }
+
+            var displayName = ConnectionsParser.MapServiceProviderId(providerId);
             return new CallEdge(name, CallType.ServiceProvider,
                 new ExternalTarget(CallType.ServiceProvider, displayName));
         }
@@ -197,6 +209,91 @@ public sealed partial class WorkflowParser
 
         return new CallEdge(name, CallType.ServiceProvider,
             new ExternalTarget(CallType.ServiceProvider, "unknown-service-provider"));
+    }
+
+    /// <summary>
+    /// Parses the triggers block and returns a TriggerInfo for the first trigger found.
+    /// For Service Bus triggers, extracts the queue or topic name so the diagram can
+    /// draw a reverse edge: SB-node → this workflow.
+    /// </summary>
+    public TriggerInfo? ParseTrigger(
+        JsonDocument workflowJson,
+        ConnectionsLookup connections,
+        ParametersLookup? parameters = null)
+    {
+        parameters ??= ParametersLookup.Empty;
+        var root = workflowJson.RootElement;
+        var definition = root.TryGetProperty("definition", out var def) ? def : root;
+
+        if (!definition.TryGetProperty("triggers", out var triggers)) return null;
+
+        foreach (var trigger in triggers.EnumerateObject())
+        {
+            var node = trigger.Value;
+            if (!node.TryGetProperty("type", out var typeProp)) continue;
+
+            return (typeProp.GetString() ?? "").ToLowerInvariant() switch
+            {
+                "serviceprovider" => ParseServiceProviderTrigger(node, parameters),
+                "request"         => new TriggerInfo("Http", null),
+                "http" or "httpwebhook" => new TriggerInfo("Http", null),
+                "recurrence"      => new TriggerInfo("Recurrence", null),
+                "apiconnection" or "apiconnectionwebhook" => new TriggerInfo("ApiConnection", null),
+                var t             => new TriggerInfo(t, null),
+            };
+        }
+
+        return null;
+    }
+
+    private static TriggerInfo ParseServiceProviderTrigger(JsonElement node, ParametersLookup parameters)
+    {
+        if (!node.TryGetProperty("inputs", out var inputs))
+            return new TriggerInfo("ServiceProvider", null);
+
+        if (inputs.TryGetProperty("serviceProviderConfiguration", out var spConfig) &&
+            spConfig.TryGetProperty("serviceProviderId", out var spId) &&
+            IsServiceBusProviderId(spId.GetString() ?? ""))
+        {
+            return new TriggerInfo("ServiceBus", ExtractSbEntityName(inputs, parameters));
+        }
+
+        return new TriggerInfo("ServiceProvider", null);
+    }
+
+    // ── Service Bus helpers ───────────────────────────────────────────────────
+
+    private static bool IsServiceBusProviderId(string providerId) =>
+        providerId.Contains("serviceBus", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Extracts the queue or topic name from an inputs element.
+    /// Tries entityName (send actions) → queueName → topicName, then resolves @parameters() if needed.
+    /// Returns null when the entity name cannot be determined (falls back to generic SB node).
+    /// </summary>
+    private static string? ExtractSbEntityName(JsonElement inputs, ParametersLookup parameters)
+    {
+        if (!inputs.TryGetProperty("parameters", out var inputParams)) return null;
+
+        string? raw = null;
+        foreach (var key in (ReadOnlySpan<string>)["entityName", "queueName", "topicName"])
+        {
+            if (inputParams.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
+            {
+                raw = v.GetString();
+                break;
+            }
+        }
+
+        if (raw is null) return null;
+
+        if (raw.StartsWith('@'))
+        {
+            var m = ParameterRefRegex().Match(raw);
+            return m.Success && parameters.TryGet(m.Groups[1].Value, out var resolved) ? resolved : null;
+        }
+
+        return raw;
     }
 
     private static CallEdge ParseChildWorkflow(string name, JsonElement node)

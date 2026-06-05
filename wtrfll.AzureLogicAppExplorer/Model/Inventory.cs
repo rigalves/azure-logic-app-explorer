@@ -7,9 +7,18 @@ public enum CallType
     Salesforce,
     ManagedConnector,
     ServiceProvider,
+    ServiceBus,        // Service Bus queue/topic — has entity name, can also be a trigger source
     ChildWorkflow,
     Unknown,
 }
+
+/// <summary>
+/// Describes how a workflow is triggered. Populated for every workflow; null only when
+/// the trigger block is missing or unparseable.
+/// </summary>
+/// <param name="Kind">Trigger kind string: "ServiceBus", "Http", "Recurrence", "ApiConnection", etc.</param>
+/// <param name="EntityName">Queue or topic name for ServiceBus triggers; null for other kinds.</param>
+public sealed record TriggerInfo(string Kind, string? EntityName);
 
 /// <summary>A resolved or best-effort external call target.</summary>
 public sealed record ExternalTarget(
@@ -31,6 +40,7 @@ public sealed class WorkflowInfo
     public required string LogicAppName { get; init; }
     public required bool IsStateful { get; init; }
     public required List<CallEdge> Edges { get; init; }
+    public TriggerInfo? Trigger { get; init; }
 }
 
 public sealed class LogicAppInfo

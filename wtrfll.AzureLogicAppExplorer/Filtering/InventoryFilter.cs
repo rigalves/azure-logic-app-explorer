@@ -49,6 +49,7 @@ public static class InventoryFilter
 
     private static bool WorkflowMatchesKeyword(WorkflowInfo wf, string keyword) =>
         wf.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+        (wf.Trigger?.EntityName?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false) ||
         wf.Edges.Any(e => EdgeMatchesKeyword(e, keyword));
 
     private static bool EdgeMatchesKeyword(CallEdge edge, string keyword) =>

@@ -189,6 +189,7 @@ public sealed class ScanService : IHostedService
             var parameters = _parametersParser.Parse(appParamsDoc, doc);
             var isStateful = IsStateful(doc);
             var edges = _workflowParser.Parse(doc, connections, parameters);
+            var trigger = _workflowParser.ParseTrigger(doc, connections, parameters);
 
             return new WorkflowInfo
             {
@@ -196,6 +197,7 @@ public sealed class ScanService : IHostedService
                 LogicAppName = appName,
                 IsStateful = isStateful,
                 Edges = edges.ToList(),
+                Trigger = trigger,
             };
         }
         catch (Exception ex)
