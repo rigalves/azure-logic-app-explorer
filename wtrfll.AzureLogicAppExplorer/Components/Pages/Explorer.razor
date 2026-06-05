@@ -210,6 +210,10 @@
                     disabled="@(!_diagramRendered)">
                 Download .mmd
             </button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="DownloadPng"
+                    disabled="@(!_diagramRendered)">
+                Download PNG
+            </button>
         </div>
     </div>
     <div class="card-body p-2" style="min-height:220px; overflow:auto;">
@@ -237,71 +241,78 @@
 </div>
 
 @* ── Inventory table ── *@
-<details>
-    <summary class="small fw-semibold mb-2" style="cursor:pointer;">
-        Raw Inventory
-        (@FilteredInventory.LogicApps.Sum(a => a.Workflows.Sum(w => w.Edges.Count)) edges
-        across @FilteredInventory.LogicApps.Sum(a => a.Workflows.Count) workflow(s))
-    </summary>
-    <div class="table-responsive">
-        <table class="table table-sm table-hover small">
-            <thead>
-                <tr>
-                    <th>Logic App</th>
-                    <th>Workflow</th>
-                    <th>Action</th>
-                    <th>Type</th>
-                    <th>Target</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var app in FilteredInventory.LogicApps)
-                {
-                    @foreach (var wf in app.Workflows)
+<div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+    <details class="flex-grow-1 overflow-hidden">
+        <summary class="small fw-semibold mb-2" style="cursor:pointer;">
+            Raw Inventory
+            (@FilteredInventory.LogicApps.Sum(a => a.Workflows.Sum(w => w.Edges.Count)) edges
+            across @FilteredInventory.LogicApps.Sum(a => a.Workflows.Count) workflow(s))
+        </summary>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover small">
+                <thead>
+                    <tr>
+                        <th>Logic App</th>
+                        <th>Workflow</th>
+                        <th>Action</th>
+                        <th>Type</th>
+                        <th>Target</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var app in FilteredInventory.LogicApps)
                     {
-                        @if (wf.Edges.Count == 0)
+                        @foreach (var wf in app.Workflows)
                         {
-                            <tr>
-                                <td class="text-muted">@app.Name</td>
-                                <td class="text-muted">@wf.Name</td>
-                                <td colspan="3" class="text-muted fst-italic">no outbound calls</td>
-                            </tr>
-                        }
-                        else
-                        {
-                            @foreach (var edge in wf.Edges)
+                            @if (wf.Edges.Count == 0)
                             {
                                 <tr>
-                                    <td>@app.Name</td>
-                                    <td>@wf.Name</td>
-                                    <td>@edge.ActionName</td>
-                                    <td>
-                                        <span class="badge @BadgeClass(edge.CallType)">@edge.CallType</span>
-                                    </td>
-                                    <td>
-                                        @if (edge.Target.RawExpression is not null)
-                                        {
-                                            <span title="@edge.Target.RawExpression"
-                                                  class="fst-italic text-muted">⟨dynamic⟩</span>
-                                            <br />
-                                            <code class="small text-muted" style="word-break:break-all;">
-                                                @edge.Target.RawExpression
-                                            </code>
-                                        }
-                                        else
-                                        {
-                                            @edge.Target.Name
-                                        }
-                                    </td>
+                                    <td class="text-muted">@app.Name</td>
+                                    <td class="text-muted">@wf.Name</td>
+                                    <td colspan="3" class="text-muted fst-italic">no outbound calls</td>
                                 </tr>
+                            }
+                            else
+                            {
+                                @foreach (var edge in wf.Edges)
+                                {
+                                    <tr>
+                                        <td>@app.Name</td>
+                                        <td>@wf.Name</td>
+                                        <td>@edge.ActionName</td>
+                                        <td>
+                                            <span class="badge @BadgeClass(edge.CallType)">@edge.CallType</span>
+                                        </td>
+                                        <td>
+                                            @if (edge.Target.RawExpression is not null)
+                                            {
+                                                <span title="@edge.Target.RawExpression"
+                                                      class="fst-italic text-muted">⟨dynamic⟩</span>
+                                                <br />
+                                                <code class="small text-muted" style="word-break:break-all;">
+                                                    @edge.Target.RawExpression
+                                                </code>
+                                            }
+                                            else
+                                            {
+                                                @edge.Target.Name
+                                            }
+                                        </td>
+                                    </tr>
+                                }
                             }
                         }
                     }
-                }
-            </tbody>
-        </table>
-    </div>
-</details>
+                </tbody>
+            </table>
+        </div>
+    </details>
+    <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+            @onclick="DownloadCsv"
+            disabled="@(FilteredInventory.LogicApps.Count == 0)">
+        Download CSV
+    </button>
+</div>
 
 @code {
     // ── Filter state ──────────────────────────────────────────────────────────
@@ -482,6 +493,58 @@
     {
         var filename = $"wtrfll.AzureLogicAppExplorer-{_mode.ToString().ToLower()}-{DateTime.Now:yyyyMMdd-HHmm}.mmd";
         await JS.InvokeVoidAsync("azureLogicAppExplorer.downloadFile", filename, _lastMermaid);
+    }
+
+    private async Task DownloadPng()
+    {
+        var filename = $"wtrfll.AzureLogicAppExplorer-{_mode.ToString().ToLower()}-{DateTime.Now:yyyyMMdd-HHmm}.png";
+        await JS.InvokeVoidAsync("azureLogicAppExplorer.downloadDiagramPng", filename);
+    }
+
+    private async Task DownloadCsv()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Logic App,Workflow,Trigger Kind,Trigger Entity,Action Name,Call Type,Target,Raw Expression");
+
+        foreach (var app in FilteredInventory.LogicApps)
+        {
+            foreach (var wf in app.Workflows)
+            {
+                var appName       = CsvEsc(app.Name);
+                var wfName        = CsvEsc(wf.Name);
+                var triggerKind   = CsvEsc(wf.Trigger?.Kind   ?? string.Empty);
+                var triggerEntity = CsvEsc(wf.Trigger?.EntityName ?? string.Empty);
+
+                if (wf.Edges.Count == 0)
+                {
+                    sb.AppendLine(string.Join(",", appName, wfName, triggerKind, triggerEntity, "", "", "", ""));
+                }
+                else
+                {
+                    foreach (var edge in wf.Edges)
+                    {
+                        sb.AppendLine(string.Join(",",
+                            appName, wfName, triggerKind, triggerEntity,
+                            CsvEsc(edge.ActionName),
+                            edge.CallType.ToString(),
+                            CsvEsc(edge.Target.Name),
+                            CsvEsc(edge.Target.RawExpression ?? string.Empty)));
+                    }
+                }
+            }
+        }
+
+        var filename = "inventory-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".csv";
+        await JS.InvokeVoidAsync("azureLogicAppExplorer.downloadFile", filename, sb.ToString());
+    }
+
+    private static string CsvEsc(string s)
+    {
+        if (!s.Contains(',') && !s.Contains('"') && !s.Contains('\n') && !s.Contains('\r'))
+            return s;
+        // Wrap in quotes, doubling any internal quote characters
+        var q = '"'.ToString();
+        return q + s.Replace(q, q + q) + q;
     }
 
     // ── Styling ───────────────────────────────────────────────────────────────
