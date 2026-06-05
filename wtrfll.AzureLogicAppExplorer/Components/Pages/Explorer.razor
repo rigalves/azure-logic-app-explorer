@@ -325,12 +325,10 @@
             .Where(n => string.IsNullOrEmpty(_appSearch) ||
                         n.Contains(_appSearch, StringComparison.OrdinalIgnoreCase));
 
-    // Apps that are "active" for the workflow panel
-    // Empty _selectedApps = show all
+    // Apps whose workflows appear in the workflow panel — only explicitly selected apps.
+    // Empty _selectedApps = nothing shown (use hint); FilteredInventory still shows all in the diagram.
     private IEnumerable<string> ActiveApps =>
-        _selectedApps.Count == 0
-            ? Scan.CurrentInventory.LogicApps.Select(a => a.Name)
-            : Scan.CurrentInventory.LogicApps.Select(a => a.Name).Where(_selectedApps.Contains);
+        Scan.CurrentInventory.LogicApps.Select(a => a.Name).Where(_selectedApps.Contains);
 
     // Workflows grouped by app, filtered by active apps + wf search
     private IEnumerable<(string AppName, IEnumerable<string> Workflows)> FilteredWorkflowsByApp =>
