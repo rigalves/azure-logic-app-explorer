@@ -4,6 +4,8 @@ using wtrfll.AzureLogicAppExplorer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: true);
+
 builder.Services
     .AddOptions<AppOptions>()
     .Bind(builder.Configuration.GetSection(AppOptions.Section))
