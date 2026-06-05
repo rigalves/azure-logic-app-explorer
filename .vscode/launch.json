@@ -2,13 +2,13 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FlowAtlas",
+      "name": "wtrfll.AzureLogicAppExplorer",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/FlowAtlas/bin/Debug/net8.0/FlowAtlas.dll",
+      "program": "${workspaceFolder}/wtrfll.AzureLogicAppExplorer/bin/Debug/net8.0/wtrfll.AzureLogicAppExplorer.dll",
       "args": [],
-      "cwd": "${workspaceFolder}/FlowAtlas",
+      "cwd": "${workspaceFolder}/wtrfll.AzureLogicAppExplorer",
       "stopAtEntry": false,
       "serverReadyAction": {
         "action": "openExternally",

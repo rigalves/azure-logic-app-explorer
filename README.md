@@ -1,4 +1,4 @@
-# FlowAtlas
+# wtrfll.AzureLogicAppExplorer
 
 A .NET 8 Blazor Server app that scans an Azure Resource Group for **Standard Logic Apps**, inventories every outbound call, and renders filterable **Mermaid.js relationship diagrams**.
 
@@ -24,7 +24,7 @@ Inventoried call types:
 
 ## Required Azure RBAC
 
-The identity running FlowAtlas needs **Contributor** (or higher) on the target Resource Group.
+The identity running wtrfll.AzureLogicAppExplorer needs **Contributor** (or higher) on the target Resource Group.
 
 Reader alone is not sufficient — the ARM `hostruntime` proxy endpoints used to read `workflow.json` and `connections.json` require Contributor-level access.
 
@@ -32,11 +32,11 @@ Reader alone is not sufficient — the ARM `hostruntime` proxy endpoints used to
 
 ## Configuration
 
-Edit `FlowAtlas/appsettings.json`:
+Edit `wtrfll.AzureLogicAppExplorer/appsettings.json`:
 
 ```json
 {
-  "FlowAtlas": {
+  "wtrfll.AzureLogicAppExplorer": {
     "SubscriptionId": "your-subscription-guid",
     "ResourceGroup": "your-resource-group-name",
     "HostRuntimeApiVersion": "2022-03-01",
@@ -48,8 +48,8 @@ Edit `FlowAtlas/appsettings.json`:
 Or use environment variables (useful for CI / containerised deployments):
 
 ```
-FlowAtlas__SubscriptionId=<guid>
-FlowAtlas__ResourceGroup=<rg-name>
+wtrfll.AzureLogicAppExplorer__SubscriptionId=<guid>
+wtrfll.AzureLogicAppExplorer__ResourceGroup=<rg-name>
 ```
 
 ### Service Principal (alternative to az login)
@@ -66,7 +66,7 @@ $env:AZURE_CLIENT_SECRET = "your-client-secret"
 
 ```bash
 az login
-dotnet run --project FlowAtlas
+dotnet run --project wtrfll.AzureLogicAppExplorer
 ```
 
 Open the URL printed in the console (e.g. `http://localhost:5148`), then click **⟳ Scan**.
@@ -99,10 +99,10 @@ Open the URL printed in the console (e.g. `http://localhost:5148`), then click *
 ## Architecture
 
 ```
-FlowAtlas/
+wtrfll.AzureLogicAppExplorer/
 ├── Azure/
 │   ├── AzureLogicAppClient.cs   # ARM REST client (no Kudu needed)
-│   └── FlowAtlasOptions.cs      # Config + startup validation
+│   └── AppOptions.cs      # Config + startup validation
 ├── Parsing/
 │   ├── WorkflowParser.cs        # Recursive action-tree walker
 │   └── ConnectionsParser.cs     # connections.json → lookup
@@ -118,8 +118,8 @@ FlowAtlas/
         ├── Explorer.razor        # Main UI
         └── Probe.razor           # Azure access probe
 
-FlowAtlas.Tests/                 # Unit tests (parser + filter + Mermaid) — no Azure needed
-FlowAtlas.IntegrationTests/      # Azure access probes (requires az login + config)
+wtrfll.AzureLogicAppExplorer.Tests/                 # Unit tests (parser + filter + Mermaid) — no Azure needed
+wtrfll.AzureLogicAppExplorer.IntegrationTests/      # Azure access probes (requires az login + config)
 ```
 
 ---
@@ -128,10 +128,10 @@ FlowAtlas.IntegrationTests/      # Azure access probes (requires az login + conf
 
 ```bash
 # Unit tests (no Azure required)
-dotnet test FlowAtlas.Tests
+dotnet test wtrfll.AzureLogicAppExplorer.Tests
 
 # Integration tests (requires az login + appsettings configured)
-dotnet test FlowAtlas.IntegrationTests --filter "Category=Integration" -v normal
+dotnet test wtrfll.AzureLogicAppExplorer.IntegrationTests --filter "Category=Integration" -v normal
 ```
 
 ---

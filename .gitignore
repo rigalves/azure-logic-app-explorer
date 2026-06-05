@@ -17,6 +17,7 @@ data/
 
 # Local config overrides with real Azure values
 FlowAtlas.IntegrationTests/appsettings.json
+wtrfll.AzureLogicAppExplorer.IntegrationTests/appsettings.json
 **/appsettings.local.json
 **/appsettings.*.local.json
 **/local.settings.json

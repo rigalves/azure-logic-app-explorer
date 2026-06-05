@@ -7,7 +7,7 @@
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/FlowAtlas/FlowAtlas.csproj",
+        "${workspaceFolder}/wtrfll.AzureLogicAppExplorer/wtrfll.AzureLogicAppExplorer.csproj",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],

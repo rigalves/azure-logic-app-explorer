@@ -1,10 +1,10 @@
-# FlowAtlas — Implementation Tasks
+# wtrfll.AzureLogicAppExplorer — Implementation Tasks
 
 ## Phase 0: Azure Access Probe ← START HERE
 Goal: verify the running identity can read every artifact we need **before** building the full app.
 All checks must pass before moving to Phase 1.
 
-- [x] 0.1 Scaffold minimal ASP.NET Core 8 Blazor Server project (`FlowAtlas`)
+- [x] 0.1 Scaffold minimal ASP.NET Core 8 Blazor Server project (`wtrfll.AzureLogicAppExplorer`)
 - [x] 0.2 Add NuGet packages: `Azure.Identity`, `Microsoft.Extensions.Azure`
 - [x] 0.3 Wire `appsettings.json` with `SubscriptionId`, `ResourceGroup`, `HostRuntimeApiVersion`
 - [x] 0.4 **Probe A — List Standard logic apps** (`Microsoft.Web/sites?kind=workflowapp`) ✅
