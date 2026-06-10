@@ -74,9 +74,17 @@ window.azureLogicAppExplorer = {
             }
         });
 
-        svg.querySelectorAll('.edgePaths > path, .edgeLabels > .edgeLabel, .edge').forEach(edge => {
+        svg.querySelectorAll('.edgePaths > path, .edge').forEach(edge => {
             const hide = hiddenNodeIds.some(nid => (edge.id || '').includes(nid));
             edge.style.display = hide ? 'none' : '';
+        });
+
+        // Edge label <g> elements carry no id of their own — the data-id
+        // identifying their source/target lives on the nested .label element.
+        svg.querySelectorAll('.edgeLabels > .edgeLabel').forEach(edgeLabel => {
+            const dataId = edgeLabel.querySelector('.label[data-id]')?.getAttribute('data-id') || '';
+            const hide = hiddenNodeIds.some(nid => dataId.includes(nid));
+            edgeLabel.style.display = hide ? 'none' : '';
         });
     },
 

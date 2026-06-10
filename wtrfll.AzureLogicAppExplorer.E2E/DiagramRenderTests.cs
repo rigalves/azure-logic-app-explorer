@@ -23,7 +23,7 @@ public class DiagramRenderTests : IAsyncLifetime
     private static readonly HashSet<string> KnownTypeClasses =
     [
         "logicapp", "workflow", "http", "funcapp", "salesforce",
-        "managed", "serviceprovider", "servicebus", "childwf", "keyvault",
+        "managed", "serviceprovider", "servicebus", "childwf", "keyvault", "trigger",
     ];
 
     private static readonly string[] PlaceholderStrings =
@@ -183,10 +183,19 @@ public class DiagramRenderTests : IAsyncLifetime
                 });
 
                 const result = [];
-                svg.querySelectorAll('.edgePaths > path, .edgeLabels > .edgeLabel, .edge').forEach(e => {
+                svg.querySelectorAll('.edgePaths > path, .edge').forEach(e => {
                     if (getComputedStyle(e).display === 'none') return;
                     if (hiddenIds.some(id => (e.id || '').includes(id)))
                         result.push(e.id);
+                });
+
+                // Edge label <g> elements carry no id of their own — the data-id
+                // identifying their source/target lives on the nested .label element.
+                svg.querySelectorAll('.edgeLabels > .edgeLabel').forEach(e => {
+                    if (getComputedStyle(e).display === 'none') return;
+                    const dataId = e.querySelector('.label[data-id]')?.getAttribute('data-id') || '';
+                    if (hiddenIds.some(id => dataId.includes(id)))
+                        result.push(dataId);
                 });
                 return result;
             }

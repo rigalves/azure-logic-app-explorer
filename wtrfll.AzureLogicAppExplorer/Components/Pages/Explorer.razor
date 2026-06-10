@@ -290,9 +290,14 @@
                             <tr>
                                 <td class="text-muted">@app.Name</td>
                                 <td class="text-muted">@wf.Name</td>
-                                <td class="text-muted">@wf.Classification</td>
+                                <td><span class="badge @ClassificationBadgeClass(wf.Classification)">@wf.Classification</span></td>
                                 <td class="text-muted">@(wf.Domain ?? "")</td>
-                                <td class="text-muted">@(wf.Trigger?.DisplayType ?? "")</td>
+                                <td>
+                                    @if (wf.Trigger is not null)
+                                    {
+                                        <span class="badge @TriggerBadgeClass(wf.Trigger.Kind)">@wf.Trigger.DisplayType</span>
+                                    }
+                                </td>
                                 <td class="text-muted">@(wf.Trigger?.Source ?? "")</td>
                                 @if (wf.Edges.Count == 0)
                                 {
@@ -301,20 +306,23 @@
                                 else
                                 {
                                     <td>
-                                        @foreach (var edge in wf.Edges)
+                                        @foreach (var interaction in BuildInteractions(wf))
                                         {
                                             <div class="mb-1">
-                                                <span class="badge @BadgeClass(edge.CallType)">
-                                                    @edge.CallType@(edge.Method is not null ? $" {edge.Method}" : "")
+                                                <span class="badge @BadgeClass(interaction.CallType)">
+                                                    @interaction.CallType@(interaction.Detail is not null ? $" {interaction.Detail}" : "")
                                                 </span>
-                                                @if (edge.Target.RawExpression is not null)
+                                                @if (interaction.RawExpression is not null)
                                                 {
-                                                    <span title="@edge.Target.RawExpression"
-                                                          class="fst-italic text-muted">⟨dynamic⟩</span>
+                                                    <span title="Dynamic expression" class="fst-italic text-muted">@interaction.RawExpression</span>
                                                 }
                                                 else
                                                 {
-                                                    @edge.Target.Name
+                                                    @interaction.Target
+                                                }
+                                                @if (interaction.Count > 1)
+                                                {
+                                                    <span class="text-muted">×@interaction.Count</span>
                                                 }
                                             </div>
                                         }
@@ -363,6 +371,7 @@
         new("servicebus",     "Service Bus",       "#f0ad4e"),
         new("childwf",        "Child Workflow",    "#20c997"),
         new("keyvault",       "Key Vault",         "#dc3545"),
+        new("trigger",        "Trigger Source",    "#6610f2"),
     ];
 
     // Hidden by default: Key Vault nodes are usually noise for flow diagrams
@@ -575,11 +584,12 @@
 
                 var interactions = wf.Edges.Count == 0
                     ? string.Empty
-                    : string.Join("; ", wf.Edges.Select(edge =>
+                    : string.Join("; ", BuildInteractions(wf).Select(i =>
                     {
-                        var callType = edge.CallType.ToString() + (edge.Method is not null ? $" {edge.Method}" : "");
-                        var target = edge.Target.RawExpression is not null ? "⟨dynamic⟩" : edge.Target.Name;
-                        return $"{callType}: {target}";
+                        var callType = i.CallType.ToString() + (i.Detail is not null ? $" {i.Detail}" : "");
+                        var target = i.RawExpression ?? i.Target;
+                        var suffix = i.Count > 1 ? $" x{i.Count}" : "";
+                        return $"{callType}: {target}{suffix}";
                     }));
 
                 sb.AppendLine(string.Join(",", appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity, triggerMethod, CsvEsc(interactions)));
@@ -599,6 +609,29 @@
         return q + s.Replace(q, q + q) + q;
     }
 
+    // ── Interactions ─────────────────────────────────────────────────────────
+
+    /// <summary>One deduplicated interaction shown as a chip in the Raw Inventory and CSV.</summary>
+    private sealed record InteractionView(CallType CallType, string? Detail, string Target, string? RawExpression, int Count);
+
+    /// <summary>
+    /// Builds the deduplicated, ordered list of interactions for a workflow's edges.
+    /// "Detail" is the HTTP method (Http/ApiConnection) or friendly operation
+    /// (ServiceBus/KeyVault). Identical interactions (same type/detail/target) are
+    /// collapsed into one entry with a Count, in first-seen order.
+    /// </summary>
+    private static List<InteractionView> BuildInteractions(WorkflowInfo wf) =>
+        wf.Edges
+            .Select(e => new InteractionView(
+                e.CallType,
+                e.Method ?? e.Operation,
+                e.Target.Name + (e.Target.Path ?? ""),
+                e.Target.RawExpression,
+                1))
+            .GroupBy(i => (i.CallType, i.Detail, i.Target, i.RawExpression))
+            .Select(g => g.First() with { Count = g.Count() })
+            .ToList();
+
     // ── Styling ───────────────────────────────────────────────────────────────
 
     private static string BadgeClass(CallType t) => t switch
@@ -611,5 +644,23 @@
         CallType.ChildWorkflow    => "bg-success",
         CallType.KeyVault         => "bg-danger",
         _                         => "bg-dark",
+    };
+
+    private static string ClassificationBadgeClass(WorkflowClassification c) => c switch
+    {
+        WorkflowClassification.Pub    => "bg-primary",
+        WorkflowClassification.Sub    => "bg-info text-dark",
+        WorkflowClassification.Facade => "bg-success",
+        _                              => "bg-secondary",
+    };
+
+    private static string TriggerBadgeClass(string kind) => kind switch
+    {
+        "ServiceBus"     => "bg-dark",
+        "Http"           => "bg-secondary",
+        "ApiConnection"  => "bg-primary",
+        "Recurrence"     => "bg-warning text-dark",
+        "ServiceProvider" => "bg-warning text-dark",
+        _                => "bg-secondary",
     };
 }

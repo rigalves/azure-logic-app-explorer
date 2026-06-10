@@ -210,7 +210,7 @@ public sealed class ScanService : IHostedService
                 Edges = edges.ToList(),
                 Trigger = trigger,
                 Domain = domain,
-                Classification = WorkflowParser.ClassifyWorkflow(wfName, trigger),
+                Classification = WorkflowParser.ClassifyWorkflow(wfName, trigger, appName),
             };
         }
         catch (Exception ex)

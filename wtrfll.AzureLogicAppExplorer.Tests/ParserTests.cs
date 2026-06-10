@@ -208,6 +208,50 @@ public class ParserTests
     }
 
     [Fact]
+    public void Parser_ServiceProvider_ServiceBus_ExtractsSendOperation()
+    {
+        var edges = ParseAllTypes();
+        var edge = edges.Single(e => e.ActionName == "Send_Service_Bus_Message");
+
+        Assert.Equal("Send", edge.Operation);
+    }
+
+    [Theory]
+    [InlineData("peekLockTopicMessagesV2", "Receive (Peek-Lock)")]
+    [InlineData("completeMessage", "Complete")]
+    [InlineData("abandonMessage", "Abandon")]
+    [InlineData("deadletterMessage", "Dead-letter")]
+    [InlineData("renewLock", "Renew Lock")]
+    public void Parser_ServiceProvider_ServiceBus_MapsOperationLabels(string operationId, string expectedLabel)
+    {
+        var (parser, connections) = Setup();
+        var doc = JsonDocument.Parse($$"""
+            {
+              "definition": {
+                "actions": {
+                  "Sb_Action": {
+                    "type": "ServiceProvider",
+                    "inputs": {
+                      "parameters": { "entityName": "orders-queue" },
+                      "serviceProviderConfiguration": {
+                        "connectionName": "serviceBusConn",
+                        "operationId": "{{operationId}}",
+                        "serviceProviderId": "/serviceProviders/serviceBus"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """);
+
+        var edges = parser.Parse(doc, connections);
+        var edge = edges.Single(e => e.ActionName == "Sb_Action");
+
+        Assert.Equal(expectedLabel, edge.Operation);
+    }
+
+    [Fact]
     public void Parser_ServiceProvider_KeyVault_IsClassifiedAsKeyVault()
     {
         var (parser, connections) = Setup();
@@ -236,6 +280,17 @@ public class ParserTests
 
         Assert.Equal(CallType.KeyVault, edge.CallType);
         Assert.Equal("Key Vault", edge.Target.Name);
+        Assert.Equal("Get Secret", edge.Operation);
+    }
+
+    [Fact]
+    public void Parser_Http_LiteralUri_ExtractsPath()
+    {
+        var edges = ParseAllTypes();
+        var edge = edges.Single(e => e.ActionName == "Call_External_API");
+
+        Assert.Equal("api.contoso.com", edge.Target.Name);
+        Assert.Equal("/orders", edge.Target.Path);
     }
 
     [Fact]
@@ -355,6 +410,16 @@ public class ParserTests
         // Recurrence trigger so the only signal is the "pub"/"sub" name segment
         var trigger = new TriggerInfo("Recurrence", null);
         Assert.Equal(expected, WorkflowParser.ClassifyWorkflow(name, trigger));
+    }
+
+    [Theory]
+    [InlineData("lapp-esp-order-updates-pub-prod-01", WorkflowClassification.Pub)]
+    [InlineData("lapp-esp-order-updates-sub-prod-01", WorkflowClassification.Sub)]
+    public void ClassifyWorkflow_PubSubSegmentInLogicAppName_ClassifiesAccordingly(string logicAppName, WorkflowClassification expected)
+    {
+        // Workflow name itself has no pub/sub clue — only the parent Logic App name does
+        var trigger = new TriggerInfo("ServiceBus", "sb-topic-esp-rpt-accession-msg", "Topic");
+        Assert.Equal(expected, WorkflowParser.ClassifyWorkflow("wf-map-accession-to-order-canonical", trigger, logicAppName));
     }
 
     [Fact]

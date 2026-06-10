@@ -62,19 +62,23 @@ public enum WorkflowClassification
 }
 
 /// <summary>A resolved or best-effort external call target.</summary>
+/// <param name="Path">URL path for Http calls (e.g. "/api/results"), appended to Name for display when present.</param>
 public sealed record ExternalTarget(
     CallType CallType,
     string Name,                  // host / function app / connector name / workflow name
-    string? RawExpression = null  // set when Name is derived from a @expression
+    string? RawExpression = null, // set when Name is derived from a @expression
+    string? Path = null
 );
 
 /// <summary>One outbound call edge extracted from an action in a workflow.</summary>
 /// <param name="Method">HTTP method (GET, POST, ...) for Http/ApiConnection actions, or null when not applicable/known.</param>
+/// <param name="Operation">Friendly operation label (e.g. "Send", "Complete", "Get Secret") for Service Bus / Key Vault actions, or null when not applicable.</param>
 public sealed record CallEdge(
     string ActionName,
     CallType CallType,
     ExternalTarget Target,
-    string? Method = null
+    string? Method = null,
+    string? Operation = null
 );
 
 public sealed class WorkflowInfo

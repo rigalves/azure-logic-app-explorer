@@ -131,9 +131,9 @@ public sealed partial class WorkflowParser
             method = ExtractMethod(inputs);
         }
 
-        var (targetName, isExpr) = ResolveUri(rawUri, parameters);
+        var (targetName, path, isExpr) = ResolveUri(rawUri, parameters);
         return new CallEdge(name, CallType.Http,
-            new ExternalTarget(CallType.Http, targetName, isExpr ? rawUri : null), method);
+            new ExternalTarget(CallType.Http, targetName, isExpr ? rawUri : null, isExpr ? null : path), method);
     }
 
     private static CallEdge ParseFunction(string name, JsonElement node, ConnectionsLookup connections)
@@ -206,6 +206,7 @@ public sealed partial class WorkflowParser
             spConfig.TryGetProperty("serviceProviderId", out var spId))
         {
             var providerId = spId.GetString() ?? "";
+            var operationId = spConfig.TryGetProperty("operationId", out var opIdProp) ? opIdProp.GetString() : null;
 
             // Service Bus gets a dedicated CallType so it can link with SB-triggered workflows
             if (IsServiceBusProviderId(providerId))
@@ -213,13 +214,13 @@ public sealed partial class WorkflowParser
                 var entityName = ExtractSbEntityName(inputs, parameters);
                 if (entityName is not null)
                     return new CallEdge(name, CallType.ServiceBus,
-                        new ExternalTarget(CallType.ServiceBus, entityName));
+                        new ExternalTarget(CallType.ServiceBus, entityName), Operation: MapServiceBusOperation(operationId));
             }
 
             // Key Vault gets a dedicated CallType so it can be hidden independently in the legend
             if (ConnectionsParser.IsKeyVaultProviderId(providerId))
                 return new CallEdge(name, CallType.KeyVault,
-                    new ExternalTarget(CallType.KeyVault, ConnectionsParser.MapServiceProviderId(providerId)));
+                    new ExternalTarget(CallType.KeyVault, ConnectionsParser.MapServiceProviderId(providerId)), Operation: MapKeyVaultOperation(operationId));
 
             var displayName = ConnectionsParser.MapServiceProviderId(providerId);
             return new CallEdge(name, CallType.ServiceProvider,
@@ -321,12 +322,13 @@ public sealed partial class WorkflowParser
     private static readonly string[] SubSegments = ["sub", "subscriber", "subscribe"];
 
     /// <summary>
-    /// Classifies a workflow's role using its name and trigger:
-    /// "-publisher"/"-subscriber" name suffixes win; otherwise any "pub"/"sub"-like
-    /// segment in the name (split on '-'/'_') indicates Pub/Sub; otherwise an
-    /// HTTP/API-triggered workflow is treated as a Facade; everything else is "Other".
+    /// Classifies a workflow's role using its name, its parent Logic App's name, and its
+    /// trigger: "-publisher"/"-subscriber" name suffixes win; otherwise any "pub"/"sub"-like
+    /// segment in the workflow name or the Logic App name (split on '-'/'_') indicates
+    /// Pub/Sub; otherwise an HTTP/API-triggered workflow is treated as a Facade; everything
+    /// else is "Other".
     /// </summary>
-    public static WorkflowClassification ClassifyWorkflow(string workflowName, TriggerInfo? trigger)
+    public static WorkflowClassification ClassifyWorkflow(string workflowName, TriggerInfo? trigger, string? logicAppName = null)
     {
         if (workflowName.EndsWith("-publisher", StringComparison.OrdinalIgnoreCase))
             return WorkflowClassification.Pub;
@@ -335,6 +337,8 @@ public sealed partial class WorkflowParser
             return WorkflowClassification.Sub;
 
         var segments = workflowName.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries);
+        if (logicAppName is not null)
+            segments = [.. segments, .. logicAppName.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries)];
 
         if (segments.Any(s => PubSegments.Contains(s, StringComparer.OrdinalIgnoreCase)))
             return WorkflowClassification.Pub;
@@ -370,6 +374,43 @@ public sealed partial class WorkflowParser
     }
 
     // ── Service Bus helpers ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Maps a Service Bus serviceProviderConfiguration.operationId to a friendly
+    /// operation label, e.g. "sendMessage" → "Send", "peekLockTopicMessagesV2" → "Receive (Peek-Lock)".
+    /// Returns the raw operationId when it doesn't match a known pattern, or null when absent.
+    /// </summary>
+    private static string? MapServiceBusOperation(string? operationId)
+    {
+        if (operationId is null) return null;
+        var id = operationId.ToLowerInvariant();
+
+        if (id.Contains("send")) return "Send";
+        if (id.Contains("peeklock")) return "Receive (Peek-Lock)";
+        if (id.Contains("receive")) return "Receive";
+        if (id.Contains("complete")) return "Complete";
+        if (id.Contains("abandon")) return "Abandon";
+        if (id.Contains("deadletter")) return "Dead-letter";
+        if (id.Contains("renewlock")) return "Renew Lock";
+
+        return operationId;
+    }
+
+    /// <summary>
+    /// Maps a Key Vault serviceProviderConfiguration.operationId to a friendly
+    /// operation label, e.g. "getSecret" → "Get Secret". Returns the raw operationId
+    /// when it doesn't match a known pattern, or null when absent.
+    /// </summary>
+    private static string? MapKeyVaultOperation(string? operationId)
+    {
+        if (operationId is null) return null;
+        var id = operationId.ToLowerInvariant();
+
+        if (id.Contains("getsecret")) return "Get Secret";
+        if (id.Contains("setsecret")) return "Set Secret";
+
+        return operationId;
+    }
 
     private static bool IsServiceBusProviderId(string providerId) =>
         providerId.Contains("serviceBus", StringComparison.OrdinalIgnoreCase);
@@ -456,17 +497,17 @@ public sealed partial class WorkflowParser
 
     // ── URI resolution ────────────────────────────────────────────────────────
 
-    private static (string targetName, bool isExpression) ResolveUri(
+    private static (string targetName, string? path, bool isExpression) ResolveUri(
         string? rawUri, ParametersLookup parameters)
     {
-        if (rawUri is null) return ("unknown", false);
+        if (rawUri is null) return ("unknown", null, false);
 
         // Literal URL — no resolution needed
         if (!rawUri.StartsWith('@'))
         {
             if (Uri.TryCreate(rawUri, UriKind.Absolute, out var parsed))
-                return (parsed.Host, false);
-            return (rawUri, false);
+                return (parsed.Host, NormalizePath(parsed.AbsolutePath), false);
+            return (rawUri, null, false);
         }
 
         // Substitute all @parameters('name') / @{parameters('name')} references
@@ -483,7 +524,7 @@ public sealed partial class WorkflowParser
         // Check for @appsettings BEFORE stripping the leading @ so the regex still matches
         var asMatch = AppSettingRefRegex().Match(working);
         if (asMatch.Success)
-            return (BestGuessFromExpression(rawUri!), true);
+            return (BestGuessFromExpression(rawUri!), null, true);
 
         // Strip a bare leading @ (e.g. "@https://..." after full single-value resolution)
         if (working.StartsWith('@'))
@@ -491,9 +532,13 @@ public sealed partial class WorkflowParser
 
         // Fully resolved to a URL?
         if (Uri.TryCreate(working, UriKind.Absolute, out var uri))
-            return (uri.Host, false);
+            return (uri.Host, NormalizePath(uri.AbsolutePath), false);
 
         // Still unresolved — derive a human-readable best-guess from the original expression
-        return (BestGuessFromExpression(rawUri!), true);
+        return (BestGuessFromExpression(rawUri!), null, true);
     }
+
+    /// <summary>Returns the path, or null when it's just "/" (i.e. no meaningful path).</summary>
+    private static string? NormalizePath(string path) =>
+        string.IsNullOrEmpty(path) || path == "/" ? null : path;
 }

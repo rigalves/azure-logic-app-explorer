@@ -63,6 +63,7 @@ public sealed partial class MermaidBuilder
         classDef servicebus    fill:#f0ad4e,color:#000,stroke:#ec971f,stroke-width:2px
         classDef childwf       fill:#20c997,color:#000,stroke:#17a589
         classDef keyvault      fill:#dc3545,color:#fff,stroke:#a02530
+        classDef trigger       fill:#6610f2,color:#fff,stroke:#4d0bb8
     """;
 
     public string Build(Inventory inventory, DiagramMode mode) =>
@@ -105,18 +106,18 @@ public sealed partial class MermaidBuilder
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Outbound edges — deduplicated per (app, target)
+        // Outbound edges — deduplicated per (app, target, operation)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
             var appId = SafeId("app", app.Name);
-            var seen = new HashSet<string>();
+            var seen = new HashSet<(string, string?)>();
             foreach (var wf in app.Workflows)
                 foreach (var edge in wf.Edges)
                 {
                     var targetId = registry.TryGetId(edge.Target);
-                    if (targetId is not null && seen.Add(targetId))
-                        sb.AppendLine($"    {appId} --> {targetId}");
+                    if (targetId is not null && seen.Add((targetId, edge.Operation)))
+                        sb.AppendLine(EdgeLine(appId, targetId, edge.Operation));
                 }
         }
 
@@ -130,7 +131,26 @@ public sealed partial class MermaidBuilder
                 {
                     var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
                     if (sbId is not null && seen.Add(sbId))
-                        sb.AppendLine($"    {sbId} --> {appId}");
+                        sb.AppendLine(EdgeLine(sbId, appId, "Trigger"));
+                }
+        }
+
+        // Trigger-source nodes for non-Service Bus triggers (e.g. "External caller",
+        // "Schedule") — deduplicated per (app, source, display type)
+        foreach (var app in inventory.LogicApps)
+        {
+            var appId = SafeId("app", app.Name);
+            var seen = new HashSet<(string, string)>();
+            foreach (var wf in app.Workflows)
+                if (HasNonServiceBusTrigger(wf.Trigger))
+                {
+                    var trig = wf.Trigger!;
+                    if (!seen.Add((trig.Source, trig.DisplayType)))
+                        continue;
+
+                    var trigId = SafeId("trig", $"{app.Name}_{trig.Source}_{trig.DisplayType}");
+                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+                    sb.AppendLine(EdgeLine(trigId, appId, "Triggers"));
                 }
         }
 
@@ -181,19 +201,19 @@ public sealed partial class MermaidBuilder
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Outbound edges — deduplicated per (workflow, target)
+        // Outbound edges — deduplicated per (workflow, target, operation)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
             foreach (var wf in app.Workflows)
             {
                 var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                var seen = new HashSet<string>();
+                var seen = new HashSet<(string, string?)>();
                 foreach (var edge in wf.Edges)
                 {
                     var targetId = registry.TryGetId(edge.Target);
-                    if (targetId is not null && seen.Add(targetId))
-                        sb.AppendLine($"    {wfId} --> {targetId}");
+                    if (targetId is not null && seen.Add((targetId, edge.Operation)))
+                        sb.AppendLine(EdgeLine(wfId, targetId, edge.Operation));
                 }
             }
         }
@@ -206,7 +226,20 @@ public sealed partial class MermaidBuilder
                     var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
                     var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
                     if (sbId is not null)
-                        sb.AppendLine($"    {sbId} --> {wfId}");
+                        sb.AppendLine(EdgeLine(sbId, wfId, "Trigger"));
+                }
+
+        // Trigger-source nodes for non-Service Bus triggers (e.g. "External caller",
+        // "Schedule") — one per workflow
+        foreach (var app in inventory.LogicApps)
+            foreach (var wf in app.Workflows)
+                if (HasNonServiceBusTrigger(wf.Trigger))
+                {
+                    var trig = wf.Trigger!;
+                    var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
+                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
+                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+                    sb.AppendLine(EdgeLine(trigId, wfId, "Triggers"));
                 }
 
         sb.Append(ClassDefs);
@@ -222,8 +255,19 @@ public sealed partial class MermaidBuilder
         return $"{prefix}_{safe}";
     }
 
+    /// <summary>True for triggers that need a dedicated trigger-source node (i.e. anything
+    /// other than a Service Bus trigger, which instead points back to its existing topic/queue node).</summary>
+    private static bool HasNonServiceBusTrigger(TriggerInfo? trigger) =>
+        trigger is not null && !(trigger.Kind == "ServiceBus" && trigger.EntityName is not null);
+
     private static string Esc(string s) =>
         s.Replace("\"", "'").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>Renders a flowchart edge, with an optional operation label (e.g. "Send", "Get Secret").</summary>
+    private static string EdgeLine(string fromId, string toId, string? operation) =>
+        operation is null
+            ? $"    {fromId} --> {toId}"
+            : $"    {fromId} -- {Esc(operation)} --> {toId}";
 
     private const int MaxActionNamesShown = 3;
 
