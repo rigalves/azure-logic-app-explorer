@@ -68,7 +68,8 @@ window.azureLogicAppExplorer = {
             const hide = hiddenClasses.some(c => node.classList.contains(c));
             node.style.display = hide ? 'none' : '';
             if (hide) {
-                const m = node.id.match(/^flowchart-(.+)-\d+$/);
+                // Node ids look like "mmd-<renderId>-flowchart-<nodeName>-<index>"
+                const m = node.id.match(/flowchart-(.+)-\d+$/);
                 if (m) hiddenNodeIds.push(m[1]);
             }
         });

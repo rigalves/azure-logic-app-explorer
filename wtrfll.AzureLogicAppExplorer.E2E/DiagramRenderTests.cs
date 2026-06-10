@@ -112,6 +112,10 @@ public class DiagramRenderTests : IAsyncLifetime
         await _page.Locator("#mermaid-diagram").ScreenshotAsync(
             new() { Path = Path.Combine(outDir, "diagram.png") });
 
+        // Key Vault is hidden by default — its edges must be hidden too, otherwise
+        // the diagram shows dangling arrows pointing at nothing.
+        await AssertNoDanglingEdges();
+
         await VerifyLegendToggle("keyvault", nodes, defaultChecked: false);
         await VerifyLegendToggle("http", nodes, defaultChecked: true);
 
@@ -137,6 +141,7 @@ public class DiagramRenderTests : IAsyncLifetime
         else
             await legendCheckbox.CheckAsync();
         await AssertNodeDisplay(nodeLocator, hidden: defaultChecked);
+        await AssertNoDanglingEdges();
 
         // Toggle back to original state
         if (defaultChecked)
@@ -144,6 +149,38 @@ public class DiagramRenderTests : IAsyncLifetime
         else
             await legendCheckbox.UncheckAsync();
         await AssertNodeDisplay(nodeLocator, hidden: !defaultChecked);
+        await AssertNoDanglingEdges();
+    }
+
+    // A "dangling edge" is a visible edge path/label connected to a node that's
+    // currently hidden via the legend filter — i.e. an arrow pointing at nothing.
+    private async Task AssertNoDanglingEdges()
+    {
+        var dangling = await _page.EvaluateAsync<JsonElement>("""
+            () => {
+                const svg = document.querySelector('#mermaid-diagram svg');
+                const hiddenIds = [];
+                svg.querySelectorAll('.node').forEach(n => {
+                    if (getComputedStyle(n).display === 'none') {
+                        const m = n.id.match(/flowchart-(.+)-\d+$/);
+                        if (m) hiddenIds.push(m[1]);
+                    }
+                });
+
+                const result = [];
+                svg.querySelectorAll('.edgePaths > path, .edgeLabels > .edgeLabel, .edge').forEach(e => {
+                    if (getComputedStyle(e).display === 'none') return;
+                    if (hiddenIds.some(id => (e.id || '').includes(id)))
+                        result.push(e.id);
+                });
+                return result;
+            }
+            """);
+
+        var danglingIds = dangling.EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.True(danglingIds.Count == 0,
+            $"Found {danglingIds.Count} edge(s) connected to hidden nodes that are still visible: " +
+            string.Join(", ", danglingIds));
     }
 
     // Playwright's ToBeHidden/ToBeVisible visibility heuristics don't reliably
