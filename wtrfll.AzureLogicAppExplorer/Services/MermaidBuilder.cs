@@ -22,6 +22,8 @@ public sealed partial class MermaidBuilder
     [GeneratedRegex(@"[^a-zA-Z0-9]")]
     private static partial Regex NonAlphanumeric();
 
+    private const string LinearCurveDirective = "%%{init: {'flowchart': {'curve': 'stepAfter'}}}%%\n";
+
     private static readonly Dictionary<CallType, string> TypeClass = new()
     {
         [CallType.Http]             = "http",
@@ -69,7 +71,7 @@ public sealed partial class MermaidBuilder
         if (inventory.LogicApps.Count == 0)
             return "flowchart LR\n    empty[\"No logic apps found — run a Scan first\"]";
 
-        var sb = new StringBuilder("flowchart LR\n");
+        var sb = new StringBuilder(LinearCurveDirective + "flowchart LR\n");
         var registry = new TargetRegistry();
 
         // Pre-register SB trigger nodes so they appear even when no sender is in the filter
@@ -140,7 +142,7 @@ public sealed partial class MermaidBuilder
         if (allWorkflows.Count == 0)
             return "flowchart LR\n    empty[\"No workflows match the current filter\"]";
 
-        var sb = new StringBuilder("flowchart LR\n");
+        var sb = new StringBuilder(LinearCurveDirective + "flowchart LR\n");
         var registry = new TargetRegistry();
         var multiApp = inventory.LogicApps.Count > 1;
 

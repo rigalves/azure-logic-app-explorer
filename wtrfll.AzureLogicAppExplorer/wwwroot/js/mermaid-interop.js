@@ -6,12 +6,38 @@ window.azureLogicAppExplorer = {
 
     async init() {
         if (this._initialized) return;
+
+        let layout = undefined;
+        try {
+            const elk = await import('https://esm.sh/@mermaid-js/layout-elk@0.2.1');
+            mermaid.registerLayoutLoaders(elk.default ?? elk);
+            layout = 'elk';
+        } catch (e) {
+            console.warn('ELK layout plugin failed to load, falling back to default layout', e);
+        }
+
         mermaid.initialize({
             startOnLoad: false,
             theme: 'default',
-            flowchart: { useMaxWidth: true, htmlLabels: true },
+            layout,
+            elk: { mergeEdges: false, nodePlacementStrategy: 'BRANDES_KOEPF' },
+            flowchart: { useMaxWidth: true, htmlLabels: true, nodeSpacing: 80, rankSpacing: 120 },
             securityLevel: 'loose',
         });
+
+        const style = document.createElement('style');
+        style.textContent = `
+            #mermaid-diagram svg .flowchart-link {
+                cursor: pointer;
+                transition: stroke 0.1s ease, stroke-width 0.1s ease;
+            }
+            #mermaid-diagram svg .flowchart-link:hover {
+                stroke: #fd7e14 !important;
+                stroke-width: 3px !important;
+            }
+        `;
+        document.head.appendChild(style);
+
         this._initialized = true;
     },
 
