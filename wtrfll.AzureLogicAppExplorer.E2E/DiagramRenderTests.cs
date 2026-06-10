@@ -89,6 +89,12 @@ public class DiagramRenderTests : IAsyncLifetime
         Assert.Equal(_appNames.OrderBy(a => a, StringComparer.Ordinal),
             headers.Distinct().OrderBy(h => h, StringComparer.Ordinal));
 
+        // Use the Detail view so the diagram includes per-action nodes/edges, not just
+        // the per-app summary, since that's what most regressions actually affect.
+        // The radio is a visually-hidden Bootstrap btn-check, so click its label.
+        await _page.Locator("label[for=modeDetail]").ClickAsync();
+        await Assertions.Expect(_page.Locator("#modeDetail")).ToBeCheckedAsync();
+
         await _page.Locator("button:has-text(\"Render Diagram\")").ClickAsync();
         await _page.Locator("#mermaid-diagram svg").WaitForAsync(new() { Timeout = 30000 });
         await _page.WaitForTimeoutAsync(500);
