@@ -106,18 +106,19 @@ public sealed partial class MermaidBuilder
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Outbound edges — deduplicated per (app, target, operation)
+        // Outbound edges — deduplicated per (app, target, label)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
             var appId = SafeId("app", app.Name);
-            var seen = new HashSet<(string, string?)>();
+            var seen = new HashSet<(string, string)>();
             foreach (var wf in app.Workflows)
                 foreach (var edge in wf.Edges)
                 {
                     var targetId = registry.TryGetId(edge.Target);
-                    if (targetId is not null && seen.Add((targetId, edge.Operation)))
-                        sb.AppendLine(EdgeLine(appId, targetId, edge.Operation));
+                    var label = EdgeLabel(edge);
+                    if (targetId is not null && seen.Add((targetId, label)))
+                        sb.AppendLine(EdgeLine(appId, targetId, label));
                 }
         }
 
@@ -201,19 +202,20 @@ public sealed partial class MermaidBuilder
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
 
-        // Outbound edges — deduplicated per (workflow, target, operation)
+        // Outbound edges — deduplicated per (workflow, target, label)
         sb.AppendLine();
         foreach (var app in inventory.LogicApps)
         {
             foreach (var wf in app.Workflows)
             {
                 var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                var seen = new HashSet<(string, string?)>();
+                var seen = new HashSet<(string, string)>();
                 foreach (var edge in wf.Edges)
                 {
                     var targetId = registry.TryGetId(edge.Target);
-                    if (targetId is not null && seen.Add((targetId, edge.Operation)))
-                        sb.AppendLine(EdgeLine(wfId, targetId, edge.Operation));
+                    var label = EdgeLabel(edge);
+                    if (targetId is not null && seen.Add((targetId, label)))
+                        sb.AppendLine(EdgeLine(wfId, targetId, label));
                 }
             }
         }
@@ -262,6 +264,12 @@ public sealed partial class MermaidBuilder
 
     private static string Esc(string s) =>
         s.Replace("\"", "'").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>Returns the label to show on an outbound edge: its operation (e.g. "Send",
+    /// "Get Secret"), falling back to its HTTP method, falling back to "Call" — so every
+    /// edge always has a label.</summary>
+    private static string EdgeLabel(CallEdge edge) =>
+        edge.Operation ?? edge.Method ?? "Call";
 
     /// <summary>Renders a flowchart edge, with an optional operation label (e.g. "Send", "Get Secret").</summary>
     private static string EdgeLine(string fromId, string toId, string? operation) =>

@@ -235,7 +235,7 @@ public class MermaidBuilderTests
 
         var edgesToSalesforce = mmd
             .Split('\n')
-            .Count(l => l.Contains($"{appId} -->") && l.Contains("Salesforce"));
+            .Count(l => l.TrimStart().StartsWith($"{appId} --") && l.Contains("Salesforce"));
         Assert.Equal(1, edgesToSalesforce);
     }
 
