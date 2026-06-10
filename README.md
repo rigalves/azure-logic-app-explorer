@@ -24,9 +24,9 @@ Inventoried call types:
 
 ## Required Azure RBAC
 
-The identity running wtrfll.AzureLogicAppExplorer needs **Contributor** (or higher) on the target Resource Group.
+The identity running wtrfll.AzureLogicAppExplorer needs at least **Reader** on the target Resource Group — workflow listing and `workflow.json` are read via the ARM `Microsoft.Web/sites/workflows` resource (the same one the Portal Designer uses), which Reader covers.
 
-Reader alone is not sufficient — the ARM `hostruntime` proxy endpoints used to read `workflow.json` and `connections.json` require Contributor-level access.
+**Contributor** (or higher) is recommended: `connections.json` and `parameters.json` are still read via the `hostruntime/admin/vfs` Kudu proxy, which requires Contributor-level access. Without it, those files are skipped (a warning is logged) and managed-connector targets / `@parameters(...)` resolution will be less complete for that app, but the scan still completes and the app's workflows still appear in the diagram.
 
 ---
 
@@ -38,18 +38,21 @@ Edit `wtrfll.AzureLogicAppExplorer/appsettings.json`:
 {
   "wtrfll.AzureLogicAppExplorer": {
     "SubscriptionId": "your-subscription-guid",
-    "ResourceGroup": "your-resource-group-name",
+    "ResourceGroups": ["your-resource-group-name", "another-resource-group-name"],
     "HostRuntimeApiVersion": "2022-03-01",
     "SnapshotPath": "data/snapshot.json"
   }
 }
 ```
 
+A scan combines the Logic Apps found across all listed resource groups (within the same subscription) into a single inventory.
+
 Or use environment variables (useful for CI / containerised deployments):
 
 ```
 wtrfll.AzureLogicAppExplorer__SubscriptionId=<guid>
-wtrfll.AzureLogicAppExplorer__ResourceGroup=<rg-name>
+wtrfll.AzureLogicAppExplorer__ResourceGroups__0=<rg-name>
+wtrfll.AzureLogicAppExplorer__ResourceGroups__1=<another-rg-name>
 ```
 
 ### Service Principal (alternative to az login)
@@ -139,5 +142,5 @@ dotnet test wtrfll.AzureLogicAppExplorer.IntegrationTests --filter "Category=Int
 ## Known limitations
 
 - `@parameters(...)` and `@appsettings(...)` URIs cannot be resolved at scan time — they appear as `⟨dynamic⟩` in diagrams and as the raw expression in the inventory table.
-- The ARM `hostruntime/admin/vfs` endpoint is used to read `workflow.json` and `connections.json`. If an app is stopped, these reads will fail with a "Forbidden from extensions API" error; the app is included in the inventory with an error note.
+- The ARM `hostruntime/admin/vfs` endpoint is used to read `workflow.json` and `connections.json`. These calls only succeed while the app is running, so apps with `properties.state != "Running"` are skipped during scan and shown in the diagram as a greyed-out, dashed "⏸ Stopped" node with no workflows.
 - Large diagrams (many workflows, many edges) can be slow to render in Mermaid. Use the filter bar to scope down before clicking Render.

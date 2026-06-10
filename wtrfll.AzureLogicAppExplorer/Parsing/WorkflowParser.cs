@@ -276,10 +276,52 @@ public sealed partial class WorkflowParser
             spConfig.TryGetProperty("serviceProviderId", out var spId) &&
             IsServiceBusProviderId(spId.GetString() ?? ""))
         {
-            return new TriggerInfo("ServiceBus", ExtractSbEntityName(inputs, parameters));
+            var operationId = spConfig.TryGetProperty("operationId", out var opId) ? opId.GetString() ?? "" : "";
+            var entityKind = operationId.Contains("Topic", StringComparison.OrdinalIgnoreCase) ? "Topic"
+                : operationId.Contains("Queue", StringComparison.OrdinalIgnoreCase) ? "Queue"
+                : null;
+            return new TriggerInfo("ServiceBus", ExtractSbEntityName(inputs, parameters), entityKind);
         }
 
         return new TriggerInfo("ServiceProvider", null);
+    }
+
+    /// <summary>
+    /// Extracts definition.metadata["x-esp-domain"], or null when the workflow has no
+    /// metadata block or the key is absent/non-string.
+    /// </summary>
+    public string? ParseDomain(JsonDocument workflowJson)
+    {
+        var root = workflowJson.RootElement;
+        var definition = root.TryGetProperty("definition", out var def) ? def : root;
+
+        if (definition.TryGetProperty("metadata", out var metadata) &&
+            metadata.TryGetProperty("x-esp-domain", out var domain) &&
+            domain.ValueKind == JsonValueKind.String)
+        {
+            return domain.GetString();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Classifies a workflow's role using its name and trigger:
+    /// "-publisher"/"-subscriber" name suffixes win; otherwise an HTTP/API-triggered
+    /// workflow is treated as a Facade; everything else is "Other".
+    /// </summary>
+    public static WorkflowClassification ClassifyWorkflow(string workflowName, TriggerInfo? trigger)
+    {
+        if (workflowName.EndsWith("-publisher", StringComparison.OrdinalIgnoreCase))
+            return WorkflowClassification.Pub;
+
+        if (workflowName.EndsWith("-subscriber", StringComparison.OrdinalIgnoreCase))
+            return WorkflowClassification.Sub;
+
+        if (trigger?.Kind is "Http" or "ApiConnection")
+            return WorkflowClassification.Facade;
+
+        return WorkflowClassification.Other;
     }
 
     // ── Service Bus helpers ───────────────────────────────────────────────────

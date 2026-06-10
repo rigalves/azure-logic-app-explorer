@@ -40,16 +40,19 @@ public static class InventoryFilter
 
         var list = workflows.ToList();
 
-        // If a filter reduced workflows to zero, drop the whole app
-        if ((workflowName is not null || keyword is not null) && list.Count == 0)
+        // If a filter reduced workflows to zero, drop the whole app — but never drop a
+        // stopped app, since it had no workflows to begin with and must stay visible.
+        if (app.Workflows.Count > 0 && list.Count == 0 && (workflowName is not null || keyword is not null))
             return null;
 
-        return new LogicAppInfo { Name = app.Name, Workflows = list };
+        return new LogicAppInfo { Name = app.Name, Workflows = list, IsRunning = app.IsRunning, ScanErrors = app.ScanErrors };
     }
 
     private static bool WorkflowMatchesKeyword(WorkflowInfo wf, string keyword) =>
         wf.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
         (wf.Trigger?.EntityName?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (wf.Domain?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        wf.Classification.ToString().Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
         wf.Edges.Any(e => EdgeMatchesKeyword(e, keyword));
 
     private static bool EdgeMatchesKeyword(CallEdge edge, string keyword) =>

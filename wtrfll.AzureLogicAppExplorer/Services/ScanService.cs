@@ -75,12 +75,17 @@ public sealed class ScanService : IHostedService
 
         try
         {
-            _logger.LogInformation("Scan started for resource group '{RG}'.", _opts.ResourceGroup);
+            _logger.LogInformation("Scan started for resource group(s): {RGs}.", string.Join(", ", _opts.ResourceGroups));
             var globalErrors = new List<string>();
 
-            var apps = await _client.ListStandardLogicAppsAsync(ct);
+            var apps = new List<(string ResourceGroup, string Name, string Kind, string State)>();
+            foreach (var rg in _opts.ResourceGroups)
+            {
+                var rgApps = await _client.ListStandardLogicAppsAsync(rg, ct);
+                apps.AddRange(rgApps.Select(a => (ResourceGroup: rg, a.Name, a.Kind, a.State)));
+            }
             _totalApps = apps.Count;
-            _logger.LogInformation("Found {Count} Standard Logic App(s).", apps.Count);
+            _logger.LogInformation("Found {Count} Standard Logic App(s) across {RgCount} resource group(s).", apps.Count, _opts.ResourceGroups.Count);
 
             var logicApps = new List<LogicAppInfo>();
 
@@ -89,7 +94,12 @@ public sealed class ScanService : IHostedService
                 async (app, innerCt) =>
                 {
                     _currentAppName = app.Name;
-                    var info = await ScanAppAsync(app.Name, innerCt);
+                    var isRunning = app.State.Equals("Running", StringComparison.OrdinalIgnoreCase);
+                    var info = isRunning
+                        ? await ScanAppAsync(app.ResourceGroup, app.Name, innerCt)
+                        : new LogicAppInfo { Name = app.Name, Workflows = [], IsRunning = false };
+                    if (!isRunning)
+                        _logger.LogInformation("App '{App}' is stopped (state: {State}) — skipping workflow scan.", app.Name, app.State);
                     lock (logicApps) logicApps.Add(info);
                     Interlocked.Increment(ref _scannedApps);
                 });
@@ -121,7 +131,7 @@ public sealed class ScanService : IHostedService
 
     // ── Per-app scanning ──────────────────────────────────────────────────────
 
-    private async Task<LogicAppInfo> ScanAppAsync(string appName, CancellationToken ct)
+    private async Task<LogicAppInfo> ScanAppAsync(string resourceGroup, string appName, CancellationToken ct)
     {
         var errors = new List<string>();
 
@@ -129,7 +139,7 @@ public sealed class ScanService : IHostedService
         ConnectionsLookup connections;
         try
         {
-            var connDoc = await _client.GetConnectionsJsonAsync(appName, ct);
+            var connDoc = await _client.GetConnectionsJsonAsync(resourceGroup, appName, ct);
             connections = _connectionsParser.Parse(connDoc);
         }
         catch (Exception ex)
@@ -142,7 +152,7 @@ public sealed class ScanService : IHostedService
         JsonDocument? appParamsDoc = null;
         try
         {
-            appParamsDoc = await _client.GetParametersJsonAsync(appName, ct);
+            appParamsDoc = await _client.GetParametersJsonAsync(resourceGroup, appName, ct);
         }
         catch (Exception ex)
         {
@@ -153,7 +163,7 @@ public sealed class ScanService : IHostedService
         List<string> workflowNames;
         try
         {
-            workflowNames = await _client.ListWorkflowsAsync(appName, ct);
+            workflowNames = await _client.ListWorkflowsAsync(resourceGroup, appName, ct);
         }
         catch (Exception ex)
         {
@@ -166,7 +176,7 @@ public sealed class ScanService : IHostedService
         var workflows = new List<WorkflowInfo>();
         foreach (var wfName in workflowNames)
         {
-            var wf = await ScanWorkflowAsync(appName, wfName, connections, appParamsDoc, errors, ct);
+            var wf = await ScanWorkflowAsync(resourceGroup, appName, wfName, connections, appParamsDoc, errors, ct);
             if (wf is not null) workflows.Add(wf);
         }
 
@@ -174,12 +184,12 @@ public sealed class ScanService : IHostedService
     }
 
     private async Task<WorkflowInfo?> ScanWorkflowAsync(
-        string appName, string wfName, ConnectionsLookup connections,
+        string resourceGroup, string appName, string wfName, ConnectionsLookup connections,
         JsonDocument? appParamsDoc, List<string> errors, CancellationToken ct)
     {
         try
         {
-            var doc = await _client.GetWorkflowJsonAsync(appName, wfName, ct);
+            var doc = await _client.GetWorkflowJsonAsync(resourceGroup, appName, wfName, ct);
             if (doc is null)
             {
                 _logger.LogDebug("workflow.json for '{App}/{Wf}' returned 404 — skipping.", appName, wfName);
@@ -190,6 +200,7 @@ public sealed class ScanService : IHostedService
             var isStateful = IsStateful(doc);
             var edges = _workflowParser.Parse(doc, connections, parameters);
             var trigger = _workflowParser.ParseTrigger(doc, connections, parameters);
+            var domain = _workflowParser.ParseDomain(doc);
 
             return new WorkflowInfo
             {
@@ -198,6 +209,8 @@ public sealed class ScanService : IHostedService
                 IsStateful = isStateful,
                 Edges = edges.ToList(),
                 Trigger = trigger,
+                Domain = domain,
+                Classification = WorkflowParser.ClassifyWorkflow(wfName, trigger),
             };
         }
         catch (Exception ex)

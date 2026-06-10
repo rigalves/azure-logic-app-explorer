@@ -228,6 +228,79 @@ public class ParserTests
     }
 
     [Fact]
+    public void ParseTrigger_ServiceBusTopic_SetsEntityKindAndDisplayType()
+    {
+        var (parser, connections) = Setup();
+        var doc = LoadFixture("workflow-topic-with-domain.json");
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.NotNull(trigger);
+        Assert.Equal("ServiceBus", trigger.Kind);
+        Assert.Equal("orders-created-topic", trigger.EntityName);
+        Assert.Equal("Topic", trigger.EntityKind);
+        Assert.Equal("Topic Event", trigger.DisplayType);
+        Assert.Equal("orders-created-topic", trigger.Source);
+    }
+
+    [Theory]
+    [InlineData("Http", null, "API")]
+    [InlineData("ApiConnection", null, "API Connector")]
+    [InlineData("Recurrence", null, "Timer (Recurrence)")]
+    [InlineData("ServiceBus", "Queue", "Queue Event")]
+    public void TriggerInfo_DisplayType_MapsToFriendlyLabel(string kind, string? entityKind, string expected)
+    {
+        var trigger = new TriggerInfo(kind, null, entityKind);
+        Assert.Equal(expected, trigger.DisplayType);
+    }
+
+    [Fact]
+    public void TriggerInfo_Source_FallsBackToGenericDescriptionWhenNoEntityName()
+    {
+        Assert.Equal("External caller", new TriggerInfo("Http", null).Source);
+        Assert.Equal("Schedule", new TriggerInfo("Recurrence", null).Source);
+        Assert.Equal("Unknown", new TriggerInfo("ServiceProvider", null).Source);
+    }
+
+    // ── ParseDomain ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseDomain_MetadataPresent_ReturnsXEspDomain()
+    {
+        var (parser, _) = Setup();
+        var doc = LoadFixture("workflow-topic-with-domain.json");
+
+        Assert.Equal("orders", parser.ParseDomain(doc));
+    }
+
+    [Fact]
+    public void ParseDomain_NoMetadata_ReturnsNull()
+    {
+        var (parser, _) = Setup();
+        var doc = LoadFixture("workflow-all-types.json");
+
+        Assert.Null(parser.ParseDomain(doc));
+    }
+
+    // ── ClassifyWorkflow ─────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("wf-orders-created-publisher", "Http", WorkflowClassification.Pub)]
+    [InlineData("wf-orders-created-subscriber", "ServiceBus", WorkflowClassification.Sub)]
+    [InlineData("wf-orders-create-session", "Http", WorkflowClassification.Facade)]
+    [InlineData("wf-orders-internal-helper", "Recurrence", WorkflowClassification.Other)]
+    public void ClassifyWorkflow_UsesNameSuffixThenTriggerKind(string name, string triggerKind, WorkflowClassification expected)
+    {
+        var trigger = new TriggerInfo(triggerKind, null);
+        Assert.Equal(expected, WorkflowParser.ClassifyWorkflow(name, trigger));
+    }
+
+    [Fact]
+    public void ClassifyWorkflow_NoTrigger_DefaultsToOther()
+    {
+        Assert.Equal(WorkflowClassification.Other, WorkflowParser.ClassifyWorkflow("wf-some-workflow", null));
+    }
+
+    [Fact]
     public void Parser_ChildWorkflow_ExtractsWorkflowName()
     {
         var edges = ParseAllTypes();

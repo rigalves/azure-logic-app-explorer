@@ -192,6 +192,30 @@ public class MermaidBuilderTests
     }
 
     [Fact]
+    public void Summary_StoppedApp_HasStoppedClassAndLabel()
+    {
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo { Name = "lapp-stopped", Workflows = [], IsRunning = false },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Summary);
+        Assert.Contains(":::logicappstopped", mmd);
+        Assert.Contains("Stopped", mmd);
+        Assert.Contains("classDef logicappstopped", mmd);
+    }
+
+    [Fact]
+    public void Summary_RunningApp_DoesNotGetStoppedClass()
+    {
+        var mmd = _builder.Build(TwoAppInventory(), DiagramMode.Summary);
+        Assert.DoesNotContain(":::logicappstopped", mmd);
+    }
+
+    [Fact]
     public void Summary_EmptyInventory_ReturnsPlaceholder()
     {
         var mmd = _builder.Build(Inventory.Empty, DiagramMode.Summary);

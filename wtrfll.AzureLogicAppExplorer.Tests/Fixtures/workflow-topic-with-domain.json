@@ -1,0 +1,28 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "metadata": {
+      "x-esp-domain": "orders",
+      "x-esp-source": ["orders"],
+      "x-esp-target": ["shipping"]
+    },
+    "actions": {},
+    "triggers": {
+      "When_messages_are_available_in_a_topic_subscription": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "topicName": "orders-created-topic",
+            "subscriptionName": "shipping-sub"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "serviceBus",
+            "operationId": "peekLockTopicMessagesV2",
+            "serviceProviderId": "/serviceProviders/serviceBus"
+          }
+        }
+      }
+    }
+  },
+  "kind": "Stateful"
+}

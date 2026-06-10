@@ -53,6 +53,7 @@ public sealed partial class MermaidBuilder
     private const string ClassDefs = """
 
         classDef logicapp      fill:#0d6efd,color:#fff,stroke:#0a58ca,stroke-width:2px
+        classDef logicappstopped fill:#adb5bd,color:#fff,stroke:#6c757d,stroke-width:2px,stroke-dasharray: 5 5
         classDef workflow      fill:#0dcaf0,color:#000,stroke:#0aa2c0,stroke-width:1px
         classDef salesforce    fill:#00A1E0,color:#fff,stroke:#0074a2,stroke-width:2px
         classDef http          fill:#6c757d,color:#fff,stroke:#495057
@@ -88,8 +89,11 @@ public sealed partial class MermaidBuilder
         {
             var appId = SafeId("app", app.Name);
             var wfCount = app.Workflows.Count;
-            var subtitle = $"{wfCount} workflow{(wfCount == 1 ? "" : "s")}";
-            sb.AppendLine($"    {appId}[\"{Esc(app.Name)}<br/><small>{subtitle}</small>\"]:::logicapp");
+            var subtitle = app.IsRunning
+                ? $"{wfCount} workflow{(wfCount == 1 ? "" : "s")}"
+                : "⏸ Stopped";
+            var cssClass = app.IsRunning ? "logicapp" : "logicappstopped";
+            sb.AppendLine($"    {appId}[\"{Esc(app.Name)}<br/><small>{subtitle}</small>\"]:::{cssClass}");
 
             foreach (var wf in app.Workflows)
                 foreach (var edge in wf.Edges)

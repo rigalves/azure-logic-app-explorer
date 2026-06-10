@@ -34,34 +34,40 @@ public sealed class AzureLogicAppClient
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    public async Task<List<(string Name, string Kind)>> ListStandardLogicAppsAsync(CancellationToken ct = default)
+    public async Task<List<(string Name, string Kind, string State)>> ListStandardLogicAppsAsync(string resourceGroup, CancellationToken ct = default)
     {
-        var url = SiteUrl() + $"?api-version={_opts.HostRuntimeApiVersion}";
+        var url = SiteUrl(resourceGroup) + $"?api-version={_opts.HostRuntimeApiVersion}";
         var doc = await GetJsonAsync(url, "list sites", ct);
 
-        var results = new List<(string, string)>();
+        var results = new List<(string, string, string)>();
         foreach (var site in doc.RootElement.GetProperty("value").EnumerateArray())
         {
             var kind = site.TryGetProperty("kind", out var k) ? k.GetString() ?? "" : "";
             if (kind.Contains("workflowapp", StringComparison.OrdinalIgnoreCase))
-                results.Add((site.GetProperty("name").GetString()!, kind));
+            {
+                var state = site.TryGetProperty("properties", out var props)
+                            && props.TryGetProperty("state", out var s)
+                            ? s.GetString() ?? "Unknown" : "Unknown";
+                results.Add((site.GetProperty("name").GetString()!, kind, state));
+            }
         }
 
         _logger.LogInformation("Found {Count} Standard Logic App(s) in '{RG}'.",
-            results.Count, _opts.ResourceGroup);
+            results.Count, resourceGroup);
         return results;
     }
 
-    public async Task<List<string>> ListWorkflowsAsync(string appName, CancellationToken ct = default)
+    public async Task<List<string>> ListWorkflowsAsync(string resourceGroup, string appName, CancellationToken ct = default)
     {
-        var url = WorkflowMgmtUrl(appName, null);
+        // Uses the ARM Microsoft.Web/sites/workflows resource (same as the Portal Designer) —
+        // a standard ARM read covered by Reader, unlike the hostruntime/admin/vfs Kudu proxy
+        // which requires Contributor-level access.
+        var url = WorkflowsArmUrl(resourceGroup, appName, null);
         var doc = await GetJsonAsync(url, $"{appName}: list workflows", ct);
 
-        var root = doc.RootElement;
-        var array = root.ValueKind == JsonValueKind.Array ? root : root.GetProperty("value");
-
-        var names = array.EnumerateArray()
+        var names = doc.RootElement.GetProperty("value").EnumerateArray()
             .Select(w => w.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+            .Select(n => n.Contains('/') ? n[(n.LastIndexOf('/') + 1)..] : n)
             .Where(n => n.Length > 0)
             .ToList();
 
@@ -69,27 +75,39 @@ public sealed class AzureLogicAppClient
         return names;
     }
 
-    public async Task<JsonDocument?> GetWorkflowJsonAsync(string appName, string workflowName, CancellationToken ct = default)
+    public async Task<JsonDocument?> GetWorkflowJsonAsync(string resourceGroup, string appName, string workflowName, CancellationToken ct = default)
     {
-        var url = VfsFileUrl(appName, $"site/wwwroot/{workflowName}/workflow.json");
-        return await GetJsonOrNullAsync(url, $"{appName}/{workflowName}: workflow.json", ct);
+        // Same ARM resource as above — returns properties.files["workflow.json"], whose
+        // shape ({ "definition": ..., "kind": ... }) matches the workflow.json file directly.
+        var url = WorkflowsArmUrl(resourceGroup, appName, workflowName);
+        var doc = await GetJsonOrNullAsync(url, $"{appName}/{workflowName}: workflow.json", ct);
+        if (doc is null) return null;
+
+        if (doc.RootElement.TryGetProperty("properties", out var props)
+            && props.TryGetProperty("files", out var files)
+            && files.TryGetProperty("workflow.json", out var wfJson))
+        {
+            return JsonDocument.Parse(wfJson.GetRawText());
+        }
+
+        return null;
     }
 
-    public async Task<JsonDocument?> GetConnectionsJsonAsync(string appName, CancellationToken ct = default)
+    public async Task<JsonDocument?> GetConnectionsJsonAsync(string resourceGroup, string appName, CancellationToken ct = default)
     {
-        var url = VfsFileUrl(appName, "site/wwwroot/connections.json");
+        var url = VfsFileUrl(resourceGroup, appName, "site/wwwroot/connections.json");
         return await GetJsonOrNullAsync(url, $"{appName}: connections.json", ct);
     }
 
-    public async Task<JsonDocument?> GetParametersJsonAsync(string appName, CancellationToken ct = default)
+    public async Task<JsonDocument?> GetParametersJsonAsync(string resourceGroup, string appName, CancellationToken ct = default)
     {
-        var url = VfsFileUrl(appName, "site/wwwroot/parameters.json");
+        var url = VfsFileUrl(resourceGroup, appName, "site/wwwroot/parameters.json");
         return await GetJsonOrNullAsync(url, $"{appName}: parameters.json", ct);
     }
 
-    public async Task<List<(string Name, string ApiId)>> ListManagedConnectionsAsync(CancellationToken ct = default)
+    public async Task<List<(string Name, string ApiId)>> ListManagedConnectionsAsync(string resourceGroup, CancellationToken ct = default)
     {
-        var url = $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{_opts.ResourceGroup}" +
+        var url = $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
                   $"/providers/Microsoft.Web/connections?api-version=2016-06-01";
         var doc = await GetJsonAsync(url, "list managed connections", ct);
 
@@ -108,21 +126,20 @@ public sealed class AzureLogicAppClient
 
     // ── URL builders ──────────────────────────────────────────────────────────
 
-    private string SiteUrl() =>
-        $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{_opts.ResourceGroup}" +
+    private string SiteUrl(string resourceGroup) =>
+        $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
         $"/providers/Microsoft.Web/sites";
 
-    private string VfsFileUrl(string appName, string relativePath) =>
-        $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{_opts.ResourceGroup}" +
+    private string VfsFileUrl(string resourceGroup, string appName, string relativePath) =>
+        $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
         $"/providers/Microsoft.Web/sites/{appName}/hostruntime/admin/vfs/{relativePath}" +
         $"?api-version={_opts.HostRuntimeApiVersion}";
 
-    private string WorkflowMgmtUrl(string appName, string? workflowName)
+    private string WorkflowsArmUrl(string resourceGroup, string appName, string? workflowName)
     {
         var wf = workflowName is not null ? $"/{Uri.EscapeDataString(workflowName)}" : "";
-        return $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{_opts.ResourceGroup}" +
-               $"/providers/Microsoft.Web/sites/{appName}" +
-               $"/hostruntime/runtime/webhooks/workflow/api/management/workflows{wf}" +
+        return $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
+               $"/providers/Microsoft.Web/sites/{appName}/workflows{wf}" +
                $"?api-version={_opts.HostRuntimeApiVersion}";
     }
 

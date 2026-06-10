@@ -156,6 +156,44 @@ public class FilterTests
         Assert.Single(result.LogicApps[0].Workflows); // only wf-create-order has Salesforce
     }
 
+    private static Inventory BuildInventoryWithStoppedApp() => new()
+    {
+        ScannedAt = DateTimeOffset.UtcNow,
+        LogicApps =
+        [
+            .. BuildInventory().LogicApps,
+            new LogicAppInfo { Name = "lapp-stopped", Workflows = [], IsRunning = false },
+        ],
+    };
+
+    [Fact]
+    public void KeywordFilter_StoppedApp_StillIncluded()
+    {
+        var result = InventoryFilter.Apply(BuildInventoryWithStoppedApp(), keyword: "salesforce");
+        Assert.Contains(result.LogicApps, a => a.Name == "lapp-stopped");
+        var stopped = result.LogicApps.Single(a => a.Name == "lapp-stopped");
+        Assert.False(stopped.IsRunning);
+        Assert.Empty(stopped.Workflows);
+    }
+
+    [Fact]
+    public void KeywordFilter_NoMatch_KeepsStoppedAppOnly()
+    {
+        var result = InventoryFilter.Apply(BuildInventoryWithStoppedApp(), keyword: "xyzzy-does-not-exist");
+        Assert.Single(result.LogicApps);
+        Assert.Equal("lapp-stopped", result.LogicApps[0].Name);
+    }
+
+    [Fact]
+    public void NoFilter_PreservesIsRunningFlag()
+    {
+        var result = InventoryFilter.Apply(BuildInventoryWithStoppedApp());
+        var stopped = result.LogicApps.Single(a => a.Name == "lapp-stopped");
+        var running = result.LogicApps.Single(a => a.Name == "lapp-orders");
+        Assert.False(stopped.IsRunning);
+        Assert.True(running.IsRunning);
+    }
+
     [Fact]
     public void EmptyInventory_ReturnsEmpty()
     {

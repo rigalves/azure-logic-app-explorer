@@ -1,5 +1,6 @@
 using wtrfll.AzureLogicAppExplorer.Azure;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 using Xunit.Abstractions;
@@ -11,7 +12,7 @@ namespace wtrfll.AzureLogicAppExplorer.IntegrationTests;
 /// Run these first before building the full app.
 ///
 /// Requirements: Azure CLI logged in (az login) or DefaultAzureCredential configured.
-/// Config: appsettings.json in this project with SubscriptionId + ResourceGroup set.
+/// Config: appsettings.json in this project with SubscriptionId + ResourceGroups set.
 ///
 /// Run:  dotnet test --filter Category=Integration -v normal
 /// </summary>
@@ -37,7 +38,7 @@ public class AzureAccessTests
 
         var http = new HttpClient();
         var options = Options.Create(_opts);
-        _client = new AzureLogicAppClient(http, options);
+        _client = new AzureLogicAppClient(http, options, NullLogger<AzureLogicAppClient>.Instance);
     }
 
     /// <summary>
@@ -48,14 +49,14 @@ public class AzureAccessTests
     [Trait("Category", "Integration")]
     public async Task ProbeA_CanListStandardLogicApps()
     {
-        var apps = await _client.ListStandardLogicAppsAsync();
+        var apps = await _client.ListStandardLogicAppsAsync(_opts.ResourceGroups[0]);
 
         _out.WriteLine($"Found {apps.Count} Standard Logic App(s):");
-        foreach (var (name, kind) in apps)
-            _out.WriteLine($"  {name}  (kind: {kind})");
+        foreach (var (name, kind, state) in apps)
+            _out.WriteLine($"  {name}  (kind: {kind}, state: {state})");
 
         Assert.True(apps.Count > 0,
-            $"No Standard Logic Apps found in resource group '{_opts.ResourceGroup}'. " +
+            $"No Standard Logic Apps found in resource group '{_opts.ResourceGroups[0]}'. " +
             "Check the resource group name and that Standard Logic Apps exist there.");
     }
 
@@ -68,13 +69,13 @@ public class AzureAccessTests
     [Trait("Category", "Integration")]
     public async Task ProbeB_CanListWorkflows()
     {
-        var apps = await _client.ListStandardLogicAppsAsync();
+        var apps = await _client.ListStandardLogicAppsAsync(_opts.ResourceGroups[0]);
         Skip.If(apps.Count == 0, "No Standard Logic Apps found — Probe A must pass first.");
 
-        var (appName, _) = apps.First();
+        var (appName, _, _) = apps.First();
         _out.WriteLine($"Testing app: {appName}");
 
-        var workflows = await _client.ListWorkflowsAsync(appName);
+        var workflows = await _client.ListWorkflowsAsync(_opts.ResourceGroups[0], appName);
 
         _out.WriteLine($"Found {workflows.Count} workflow(s):");
         foreach (var wf in workflows)
@@ -92,7 +93,7 @@ public class AzureAccessTests
     [Trait("Category", "Integration")]
     public async Task ProbeC_CanReadWorkflowDefinition()
     {
-        var apps = await _client.ListStandardLogicAppsAsync();
+        var apps = await _client.ListStandardLogicAppsAsync(_opts.ResourceGroups[0]);
         Skip.If(apps.Count == 0, "No Standard Logic Apps found — Probe A must pass first.");
 
         string? foundApp = null;
@@ -100,10 +101,10 @@ public class AzureAccessTests
         JsonDocument? definition = null;
 
         // Try each app until we find one with a workflow+definition
-        foreach (var (appName, _) in apps)
+        foreach (var (appName, _, _) in apps)
         {
             List<string>? workflows;
-            try { workflows = await _client.ListWorkflowsAsync(appName); }
+            try { workflows = await _client.ListWorkflowsAsync(_opts.ResourceGroups[0], appName); }
             catch (Exception ex) { _out.WriteLine($"  {appName}: list workflows failed — {ex.Message[..Math.Min(120, ex.Message.Length)]}"); continue; }
 
             if (workflows.Count == 0) { _out.WriteLine($"  {appName}: no workflows"); continue; }
@@ -111,7 +112,7 @@ public class AzureAccessTests
             _out.WriteLine($"  {appName}: {workflows.Count} workflow(s), reading first…");
             foreach (var wf in workflows)
             {
-                try { definition = await _client.GetWorkflowJsonAsync(appName, wf); }
+                try { definition = await _client.GetWorkflowJsonAsync(_opts.ResourceGroups[0], appName, wf); }
                 catch (Exception ex) { _out.WriteLine($"    {wf}: failed — {ex.Message[..Math.Min(120, ex.Message.Length)]}"); continue; }
 
                 if (definition is not null) { foundApp = appName; foundWorkflow = wf; break; }
@@ -144,7 +145,7 @@ public class AzureAccessTests
     [Trait("Category", "Integration")]
     public async Task ProbeD_CanListManagedConnections()
     {
-        var connections = await _client.ListManagedConnectionsAsync();
+        var connections = await _client.ListManagedConnectionsAsync(_opts.ResourceGroups[0]);
 
         _out.WriteLine($"Found {connections.Count} managed API connection(s) in resource group:");
         foreach (var (name, apiId) in connections)
@@ -165,13 +166,13 @@ public class AzureAccessTests
     [Trait("Category", "Integration")]
     public async Task ProbeE_CanReadConnectionsJson()
     {
-        var apps = await _client.ListStandardLogicAppsAsync();
+        var apps = await _client.ListStandardLogicAppsAsync(_opts.ResourceGroups[0]);
         Skip.If(apps.Count == 0, "No Standard Logic Apps found — Probe A must pass first.");
 
-        var (appName, _) = apps.First();
+        var (appName, _, _) = apps.First();
         _out.WriteLine($"Testing app: {appName}");
 
-        var doc = await _client.GetConnectionsJsonAsync(appName);
+        var doc = await _client.GetConnectionsJsonAsync(_opts.ResourceGroups[0], appName);
 
         if (doc is null)
         {
@@ -188,9 +189,9 @@ public class AzureAccessTests
 
     private void SkipIfNotConfigured()
     {
-        if (string.IsNullOrWhiteSpace(_opts.SubscriptionId) || string.IsNullOrWhiteSpace(_opts.ResourceGroup))
+        if (string.IsNullOrWhiteSpace(_opts.SubscriptionId) || _opts.ResourceGroups.Count == 0)
             throw new SkipException(
-                "wtrfll.AzureLogicAppExplorer:SubscriptionId and wtrfll.AzureLogicAppExplorer:ResourceGroup must be set in " +
+                "wtrfll.AzureLogicAppExplorer:SubscriptionId and wtrfll.AzureLogicAppExplorer:ResourceGroups must be set in " +
                 "wtrfll.AzureLogicAppExplorer.IntegrationTests/appsettings.json to run integration tests.");
     }
 

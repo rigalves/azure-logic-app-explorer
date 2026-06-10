@@ -275,6 +275,10 @@
                     <tr>
                         <th>Logic App</th>
                         <th>Workflow</th>
+                        <th>Class</th>
+                        <th>Domain</th>
+                        <th>Trigger</th>
+                        <th>Triggered By</th>
                         <th>Action</th>
                         <th>Type</th>
                         <th>Target</th>
@@ -290,6 +294,10 @@
                                 <tr>
                                     <td class="text-muted">@app.Name</td>
                                     <td class="text-muted">@wf.Name</td>
+                                    <td class="text-muted">@wf.Classification</td>
+                                    <td class="text-muted">@(wf.Domain ?? "")</td>
+                                    <td class="text-muted">@(wf.Trigger?.DisplayType ?? "")</td>
+                                    <td class="text-muted">@(wf.Trigger?.Source ?? "")</td>
                                     <td colspan="3" class="text-muted fst-italic">no outbound calls</td>
                                 </tr>
                             }
@@ -300,6 +308,10 @@
                                     <tr>
                                         <td>@app.Name</td>
                                         <td>@wf.Name</td>
+                                        <td>@wf.Classification</td>
+                                        <td>@(wf.Domain ?? "")</td>
+                                        <td>@(wf.Trigger?.DisplayType ?? "")</td>
+                                        <td>@(wf.Trigger?.Source ?? "")</td>
                                         <td>@edge.ActionName</td>
                                         <td>
                                             <span class="badge @BadgeClass(edge.CallType)">@edge.CallType</span>
@@ -424,7 +436,9 @@
                         Workflows = a.Workflows
                             .Where(w => _selectedWorkflows.Contains(WfKey(a.Name, w.Name)))
                             .ToList(),
-                    }).Where(a => a.Workflows.Count > 0).ToList(),
+                        IsRunning = a.IsRunning,
+                        ScanErrors = a.ScanErrors,
+                    }).Where(a => a.Workflows.Count > 0 || !a.IsRunning).ToList(),
                     ScannedAt = inv.ScannedAt,
                 };
 
@@ -556,27 +570,31 @@
     private async Task DownloadCsv()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Logic App,Workflow,Trigger Kind,Trigger Entity,Action Name,Call Type,Target,Raw Expression");
+        sb.AppendLine("Logic App,Workflow,Classification,Domain,Trigger Type,Triggered By,Trigger Kind,Trigger Entity,Action Name,Call Type,Target,Raw Expression");
 
         foreach (var app in FilteredInventory.LogicApps)
         {
             foreach (var wf in app.Workflows)
             {
-                var appName       = CsvEsc(app.Name);
-                var wfName        = CsvEsc(wf.Name);
-                var triggerKind   = CsvEsc(wf.Trigger?.Kind   ?? string.Empty);
-                var triggerEntity = CsvEsc(wf.Trigger?.EntityName ?? string.Empty);
+                var appName        = CsvEsc(app.Name);
+                var wfName         = CsvEsc(wf.Name);
+                var classification = wf.Classification.ToString();
+                var domain         = CsvEsc(wf.Domain ?? string.Empty);
+                var triggerType    = CsvEsc(wf.Trigger?.DisplayType ?? string.Empty);
+                var triggeredBy    = CsvEsc(wf.Trigger?.Source ?? string.Empty);
+                var triggerKind    = CsvEsc(wf.Trigger?.Kind   ?? string.Empty);
+                var triggerEntity  = CsvEsc(wf.Trigger?.EntityName ?? string.Empty);
 
                 if (wf.Edges.Count == 0)
                 {
-                    sb.AppendLine(string.Join(",", appName, wfName, triggerKind, triggerEntity, "", "", "", ""));
+                    sb.AppendLine(string.Join(",", appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity, "", "", "", ""));
                 }
                 else
                 {
                     foreach (var edge in wf.Edges)
                     {
                         sb.AppendLine(string.Join(",",
-                            appName, wfName, triggerKind, triggerEntity,
+                            appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity,
                             CsvEsc(edge.ActionName),
                             edge.CallType.ToString(),
                             CsvEsc(edge.Target.Name),
