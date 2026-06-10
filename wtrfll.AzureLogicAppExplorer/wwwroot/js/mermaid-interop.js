@@ -56,6 +56,29 @@ window.azureLogicAppExplorer = {
         }
     },
 
+    // Hides/shows nodes (and their connected edges) belonging to the given
+    // Mermaid classDef names. Pure client-side — no re-render needed.
+    applyLegendFilter(hiddenClasses) {
+        const svg = document.querySelector('#mermaid-diagram svg');
+        if (!svg) return;
+
+        const hiddenNodeIds = [];
+
+        svg.querySelectorAll('.node').forEach(node => {
+            const hide = hiddenClasses.some(c => node.classList.contains(c));
+            node.style.display = hide ? 'none' : '';
+            if (hide) {
+                const m = node.id.match(/^flowchart-(.+)-\d+$/);
+                if (m) hiddenNodeIds.push(m[1]);
+            }
+        });
+
+        svg.querySelectorAll('.edgePaths > path, .edgeLabels > .edgeLabel, .edge').forEach(edge => {
+            const hide = hiddenNodeIds.some(nid => (edge.id || '').includes(nid));
+            edge.style.display = hide ? 'none' : '';
+        });
+    },
+
     copyToClipboard(text) {
         navigator.clipboard.writeText(text).catch(() => {
             // Fallback for non-HTTPS

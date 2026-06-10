@@ -9,6 +9,7 @@ public enum CallType
     ServiceProvider,
     ServiceBus,        // Service Bus queue/topic — has entity name, can also be a trigger source
     ChildWorkflow,
+    KeyVault,
     Unknown,
 }
 

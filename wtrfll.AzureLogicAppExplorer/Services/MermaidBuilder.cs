@@ -33,6 +33,7 @@ public sealed partial class MermaidBuilder
         [CallType.ServiceProvider]  = "serviceprovider",
         [CallType.ServiceBus]       = "servicebus",
         [CallType.ChildWorkflow]    = "childwf",
+        [CallType.KeyVault]         = "keyvault",
         [CallType.Unknown]          = "http",
     };
 
@@ -45,6 +46,7 @@ public sealed partial class MermaidBuilder
         [CallType.ServiceProvider]  = "Built-in Connector",
         [CallType.ServiceBus]       = "Service Bus",
         [CallType.ChildWorkflow]    = "Child Workflow",
+        [CallType.KeyVault]         = "Key Vault",
         [CallType.Unknown]          = "HTTP",
     };
 
@@ -59,6 +61,7 @@ public sealed partial class MermaidBuilder
         classDef serviceprovider fill:#fd7e14,color:#000,stroke:#d45e00
         classDef servicebus    fill:#f0ad4e,color:#000,stroke:#ec971f,stroke-width:2px
         classDef childwf       fill:#20c997,color:#000,stroke:#17a589
+        classDef keyvault      fill:#dc3545,color:#fff,stroke:#a02530
     """;
 
     public string Build(Inventory inventory, DiagramMode mode) =>
@@ -90,7 +93,7 @@ public sealed partial class MermaidBuilder
 
             foreach (var wf in app.Workflows)
                 foreach (var edge in wf.Edges)
-                    registry.Register(edge.Target);
+                    registry.Register(edge.Target, edge.ActionName);
         }
 
         // Declare target nodes
@@ -165,7 +168,7 @@ public sealed partial class MermaidBuilder
                 sb.AppendLine($"    {wfId}[\"{Esc(wf.Name)}<br/><small>{subtitle}</small>\"]:::workflow");
 
                 foreach (var edge in wf.Edges)
-                    registry.Register(edge.Target);
+                    registry.Register(edge.Target, edge.ActionName);
             }
         }
 
@@ -218,29 +221,51 @@ public sealed partial class MermaidBuilder
     private static string Esc(string s) =>
         s.Replace("\"", "'").Replace("<", "&lt;").Replace(">", "&gt;");
 
+    private const int MaxActionNamesShown = 3;
+
     private static string NodeLabel(TargetNode node)
     {
         var subtitle = node.IsUnresolved
             ? $"{TypeSubtitle[node.CallType]} · dynamic"
             : TypeSubtitle[node.CallType];
-        return $"{Esc(node.Label)}<br/><small>{subtitle}</small>";
+        var label = $"{Esc(node.Label)}<br/><small>{subtitle}</small>";
+
+        var showActions = node.CallType is CallType.Http or CallType.Unknown;
+        if (showActions && node.ActionNames.Count > 0)
+        {
+            var names = node.ActionNames.OrderBy(a => a, StringComparer.OrdinalIgnoreCase).ToList();
+            var shown = string.Join(", ", names.Take(MaxActionNamesShown).Select(Esc));
+            if (names.Count > MaxActionNamesShown)
+                shown += $", +{names.Count - MaxActionNamesShown} more";
+            label += $"<br/><small><em>{shown}</em></small>";
+        }
+
+        return label;
     }
 
     // ── Target node registry ──────────────────────────────────────────────────
 
-    private sealed record TargetNode(string Id, string Label, CallType CallType, bool IsUnresolved);
+    private sealed record TargetNode(string Id, string Label, CallType CallType, bool IsUnresolved)
+    {
+        public HashSet<string> ActionNames { get; } = new();
+    }
 
     private sealed class TargetRegistry
     {
         private readonly Dictionary<(CallType, string), TargetNode> _map = new();
 
-        public void Register(ExternalTarget target)
+        public void Register(ExternalTarget target, string? actionName = null)
         {
             var key = (target.CallType, target.Name);
-            if (_map.ContainsKey(key)) return;
-            var nodeId = SafeId("t", $"{target.CallType}_{target.Name}");
-            _map[key] = new TargetNode(nodeId, target.Name, target.CallType,
-                IsUnresolved: target.RawExpression is not null);
+            if (!_map.TryGetValue(key, out var node))
+            {
+                var nodeId = SafeId("t", $"{target.CallType}_{target.Name}");
+                node = new TargetNode(nodeId, target.Name, target.CallType,
+                    IsUnresolved: target.RawExpression is not null);
+                _map[key] = node;
+            }
+            if (actionName is not null)
+                node.ActionNames.Add(actionName);
         }
 
         public string? TryGetId(ExternalTarget target) =>

@@ -49,7 +49,8 @@ public sealed class ConnectionsParser
                     : "";
 
                 var displayName = MapServiceProviderId(providerId);
-                lookup[refName] = new ConnectionInfo(refName, CallType.ServiceProvider, displayName);
+                var callType = IsKeyVaultProviderId(providerId) ? CallType.KeyVault : CallType.ServiceProvider;
+                lookup[refName] = new ConnectionInfo(refName, callType, displayName);
             }
         }
 
@@ -100,8 +101,12 @@ public sealed class ConnectionsParser
         "/serviceProviders/cosmosDb"      => "Cosmos DB",
         "/serviceProviders/ftp"           => "FTP",
         "/serviceProviders/sftp"          => "SFTP",
+        "/serviceProviders/keyVault"      => "Key Vault",
         var s => s?.Split('/').LastOrDefault() ?? "ServiceProvider",
     };
+
+    public static bool IsKeyVaultProviderId(string? providerId) =>
+        providerId is not null && providerId.Contains("keyVault", StringComparison.OrdinalIgnoreCase);
 
     private static string? ExtractSegmentAfter(string resourceId, string segment)
     {

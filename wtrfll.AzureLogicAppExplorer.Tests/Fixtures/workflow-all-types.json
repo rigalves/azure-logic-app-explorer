@@ -20,8 +20,9 @@
         "type": "Function",
         "inputs": {
           "function": {
-            "id": "/subscriptions/sub-123/resourceGroups/rg-dev/providers/Microsoft.Web/sites/func-app-orders/functions/ProcessOrder"
-          }
+            "connectionName": "funcConn"
+          },
+          "method": "POST"
         }
       },
       "Sync_to_Salesforce": {

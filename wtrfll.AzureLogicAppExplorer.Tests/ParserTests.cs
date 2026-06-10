@@ -102,13 +102,44 @@ public class ParserTests
     }
 
     [Fact]
+    public void Parser_Function_UnresolvedConnection_FallsBackToActionName()
+    {
+        var (parser, connections) = Setup();
+        var doc = JsonDocument.Parse("""
+            {
+              "definition": {
+                "actions": {
+                  "Call_Orphaned_Function": {
+                    "type": "Function",
+                    "inputs": {
+                      "function": { "connectionName": "doesNotExist" },
+                      "method": "POST"
+                    }
+                  }
+                }
+              }
+            }
+            """);
+
+        var edges = parser.Parse(doc, connections);
+        var edge = edges.Single(e => e.ActionName == "Call_Orphaned_Function");
+
+        Assert.Equal(CallType.Function, edge.CallType);
+        // No matching functionConnections entry — fall back to the action name
+        // instead of a meaningless "unknown-function-app" placeholder.
+        Assert.Equal("Call_Orphaned_Function", edge.Target.Name);
+    }
+
+    [Fact]
     public void Parser_ApiConnection_Salesforce_IsDistinct()
     {
         var edges = ParseAllTypes();
         var edge = edges.Single(e => e.ActionName == "Sync_to_Salesforce");
 
         Assert.Equal(CallType.Salesforce, edge.CallType);
-        Assert.Equal("Salesforce", edge.Target.Name);
+        // Salesforce's display name is generic, so the action name is used as the
+        // node title to keep distinct Salesforce operations distinguishable.
+        Assert.Equal("Sync_to_Salesforce", edge.Target.Name);
     }
 
     [Fact]
@@ -129,6 +160,37 @@ public class ParserTests
 
         Assert.Equal(CallType.ServiceBus, edge.CallType);
         Assert.Equal("orders-queue", edge.Target.Name);
+    }
+
+    [Fact]
+    public void Parser_ServiceProvider_KeyVault_IsClassifiedAsKeyVault()
+    {
+        var (parser, connections) = Setup();
+        var doc = JsonDocument.Parse("""
+            {
+              "definition": {
+                "actions": {
+                  "Get_Secret": {
+                    "type": "ServiceProvider",
+                    "inputs": {
+                      "parameters": { "secretName": "db-password" },
+                      "serviceProviderConfiguration": {
+                        "connectionName": "keyVaultConn",
+                        "operationId": "getSecret",
+                        "serviceProviderId": "/serviceProviders/keyVault"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """);
+
+        var edges = parser.Parse(doc, connections);
+        var edge = edges.Single(e => e.ActionName == "Get_Secret");
+
+        Assert.Equal(CallType.KeyVault, edge.CallType);
+        Assert.Equal("Key Vault", edge.Target.Name);
     }
 
     [Fact]

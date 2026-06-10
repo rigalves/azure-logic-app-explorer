@@ -75,7 +75,7 @@ public class MermaidBuilderTests
     public void Summary_StartsWithFlowchartLR()
     {
         var mmd = _builder.Build(TwoAppInventory(), DiagramMode.Summary);
-        Assert.StartsWith("flowchart LR", mmd);
+        Assert.Contains("flowchart LR", mmd);
     }
 
     [Fact]

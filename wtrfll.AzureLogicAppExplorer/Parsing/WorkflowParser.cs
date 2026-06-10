@@ -136,13 +136,23 @@ public sealed partial class WorkflowParser
     private static CallEdge ParseFunction(string name, JsonElement node, ConnectionsLookup connections)
     {
         if (node.TryGetProperty("inputs", out var inputs) &&
-            inputs.TryGetProperty("function", out var func) &&
-            func.TryGetProperty("id", out var id))
+            inputs.TryGetProperty("function", out var func))
         {
-            var match = SiteSegmentRegex().Match(id.GetString() ?? "");
-            if (match.Success)
+            // Real-world Logic Apps Standard shape: inputs.function.connectionName
+            // references connections.json's functionConnections, which holds the
+            // actual function app + function name.
+            if (func.TryGetProperty("connectionName", out var connName) &&
+                connections.TryGet(connName.GetString() ?? "", out var connInfo))
                 return new CallEdge(name, CallType.Function,
-                    new ExternalTarget(CallType.Function, match.Groups[1].Value));
+                    new ExternalTarget(CallType.Function, connInfo.DisplayName));
+
+            if (func.TryGetProperty("id", out var id))
+            {
+                var match = SiteSegmentRegex().Match(id.GetString() ?? "");
+                if (match.Success)
+                    return new CallEdge(name, CallType.Function,
+                        new ExternalTarget(CallType.Function, match.Groups[1].Value));
+            }
         }
 
         if (node.TryGetProperty("inputs", out var inp2) &&
@@ -153,8 +163,9 @@ public sealed partial class WorkflowParser
             return new CallEdge(name, CallType.Function,
                 new ExternalTarget(CallType.Function, info.DisplayName));
 
-        return new CallEdge(name, CallType.Function,
-            new ExternalTarget(CallType.Function, "unknown-function-app"));
+        // No connection info available — fall back to the action name rather
+        // than a meaningless placeholder.
+        return new CallEdge(name, CallType.Function, new ExternalTarget(CallType.Function, name));
     }
 
     private static CallEdge ParseApiConnection(string name, JsonElement node, ConnectionsLookup connections)
@@ -168,7 +179,12 @@ public sealed partial class WorkflowParser
             refName = refProp.GetString();
 
         if (refName is not null && connections.TryGet(refName, out var info))
-            return new CallEdge(name, info.CallType, new ExternalTarget(info.CallType, info.DisplayName));
+        {
+            // Salesforce's display name is generic ("Salesforce") for every connection,
+            // so use the action name to give each operation its own node.
+            var targetName = info.CallType == CallType.Salesforce ? name : info.DisplayName;
+            return new CallEdge(name, info.CallType, new ExternalTarget(info.CallType, targetName));
+        }
 
         return new CallEdge(name, CallType.ManagedConnector,
             new ExternalTarget(CallType.ManagedConnector, refName ?? "unknown-connection"));
@@ -192,6 +208,11 @@ public sealed partial class WorkflowParser
                         new ExternalTarget(CallType.ServiceBus, entityName));
             }
 
+            // Key Vault gets a dedicated CallType so it can be hidden independently in the legend
+            if (ConnectionsParser.IsKeyVaultProviderId(providerId))
+                return new CallEdge(name, CallType.KeyVault,
+                    new ExternalTarget(CallType.KeyVault, ConnectionsParser.MapServiceProviderId(providerId)));
+
             var displayName = ConnectionsParser.MapServiceProviderId(providerId);
             return new CallEdge(name, CallType.ServiceProvider,
                 new ExternalTarget(CallType.ServiceProvider, displayName));
@@ -203,8 +224,8 @@ public sealed partial class WorkflowParser
         {
             var refName = connName.GetString() ?? "";
             if (connections.TryGet(refName, out var info))
-                return new CallEdge(name, CallType.ServiceProvider,
-                    new ExternalTarget(CallType.ServiceProvider, info.DisplayName));
+                return new CallEdge(name, info.CallType,
+                    new ExternalTarget(info.CallType, info.DisplayName));
         }
 
         return new CallEdge(name, CallType.ServiceProvider,

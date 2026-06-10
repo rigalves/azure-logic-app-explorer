@@ -15,6 +15,9 @@ bin/
 data/
 **/data/snapshot.json
 
+# E2E test output (screenshots)
+**/e2e-output/
+
 # Local config overrides with real Azure values
 wtrfll.AzureLogicAppExplorer.IntegrationTests/appsettings.json
 **/appsettings.local.json
