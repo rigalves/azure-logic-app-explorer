@@ -113,27 +113,51 @@ window.azureLogicAppExplorer = {
         const h = svgRect.height || (vb && vb.height) || 800;
 
         // Canvas export can't handle <foreignObject> (HTML labels) — Chrome taints
-        // any canvas drawn from an SVG that contains one. Capture each label
-        // paragraph's text/style/position now, while still in the live DOM, then
-        // strip the foreignObjects from the cloned SVG before rasterizing it, and
-        // redraw the text onto the canvas afterwards.
-        const labels = [];
-        svgEl.querySelectorAll('foreignObject p').forEach(p => {
-            const text = (p.textContent || '').trim().replace(/\s+/g, ' ');
-            if (!text) return;
-            const r = p.getBoundingClientRect();
-            const cs = getComputedStyle(p);
-            labels.push({
-                text,
-                color: cs.color,
-                fontStyle: cs.fontStyle,
-                fontWeight: cs.fontWeight,
-                fontSize: parseFloat(cs.fontSize) || 16,
-                lineHeight: parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.5,
-                x: r.left + r.width / 2 - svgRect.left,
-                y: r.top + r.height / 2 - svgRect.top,
-                maxWidth: r.width,
+        // any canvas drawn from an SVG that contains one. Replace each one with a
+        // native <text>/<tspan> equivalent built from its own x/y/width/height
+        // (SVG user units), so the result lines up with the untouched vector
+        // drawing regardless of how the SVG is currently scaled/scrolled on screen.
+        const measureCtx = document.createElement('canvas').getContext('2d');
+        const replacements = [...svgEl.querySelectorAll('foreignObject')].map(fo => {
+            const fx = fo.x.baseVal.value;
+            const fy = fo.y.baseVal.value;
+            const fw = fo.width.baseVal.value;
+            const fh = fo.height.baseVal.value;
+
+            const lines = [];
+            fo.querySelectorAll('p').forEach(p => {
+                const text = (p.textContent || '').trim().replace(/\s+/g, ' ');
+                if (!text) return;
+                const cs = getComputedStyle(p);
+                const fontSize = parseFloat(cs.fontSize) || 16;
+                const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.5;
+                measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${fontSize}px ${cs.fontFamily}`;
+                for (const line of this._wrapText(measureCtx, text, fw)) {
+                    lines.push({ text: line, color: cs.color, fontFamily: cs.fontFamily, fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle, lineHeight });
+                }
             });
+            if (lines.length === 0) return null;
+
+            const totalHeight = lines.reduce((sum, l) => sum + l.lineHeight, 0);
+            let y = fy + (fh - totalHeight) / 2 + lines[0].lineHeight / 2;
+
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('dominant-baseline', 'central');
+            for (const line of lines) {
+                const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                tspan.setAttribute('x', String(fx + fw / 2));
+                tspan.setAttribute('y', String(y));
+                tspan.setAttribute('fill', line.color);
+                tspan.setAttribute('font-family', line.fontFamily);
+                tspan.setAttribute('font-size', String(line.fontSize));
+                tspan.setAttribute('font-weight', line.fontWeight);
+                tspan.setAttribute('font-style', line.fontStyle);
+                tspan.textContent = line.text;
+                text.appendChild(tspan);
+                y += line.lineHeight;
+            }
+            return text;
         });
 
         // Inline the SVG so it renders self-contained (no external stylesheet deps)
@@ -141,7 +165,11 @@ window.azureLogicAppExplorer = {
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         clone.setAttribute('width', w);
         clone.setAttribute('height', h);
-        clone.querySelectorAll('foreignObject').forEach(fo => fo.remove());
+        clone.querySelectorAll('foreignObject').forEach((fo, i) => {
+            const replacement = replacements[i];
+            if (replacement) fo.replaceWith(replacement);
+            else fo.remove();
+        });
         const svgData = new XMLSerializer().serializeToString(clone);
         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const svgUrl = URL.createObjectURL(svgBlob);
@@ -159,14 +187,6 @@ window.azureLogicAppExplorer = {
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             URL.revokeObjectURL(svgUrl);
 
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            for (const label of labels) {
-                ctx.fillStyle = label.color;
-                ctx.font = `${label.fontStyle} ${label.fontWeight} ${label.fontSize * scale}px "trebuchet ms", verdana, arial, sans-serif`;
-                this._drawWrappedText(ctx, label.text, label.x * scale, label.y * scale, label.maxWidth * scale, label.lineHeight * scale);
-            }
-
             const a = document.createElement('a');
             a.download = filename;
             a.href = canvas.toDataURL('image/png');
@@ -180,9 +200,9 @@ window.azureLogicAppExplorer = {
         img.src = svgUrl;
     },
 
-    // Word-wraps `text` to fit `maxWidth`, drawing the resulting lines centered
-    // on (cx, cy) using the canvas context's current font/fillStyle.
-    _drawWrappedText(ctx, text, cx, cy, maxWidth, lineHeight) {
+    // Word-wraps `text` to fit `maxWidth` using the given canvas context's
+    // current font, returning the resulting lines.
+    _wrapText(ctx, text, maxWidth) {
         const words = text.split(' ');
         const lines = [];
         let line = '';
@@ -196,9 +216,7 @@ window.azureLogicAppExplorer = {
             }
         }
         if (line) lines.push(line);
-
-        const startY = cy - ((lines.length - 1) * lineHeight) / 2;
-        lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
+        return lines;
     },
 
     downloadDiagramSvg(filename) {
