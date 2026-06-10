@@ -136,24 +136,31 @@ public class DiagramRenderTests : IAsyncLifetime
             await legendCheckbox.UncheckAsync();
         else
             await legendCheckbox.CheckAsync();
-        await _page.WaitForTimeoutAsync(300);
-
-        if (defaultChecked)
-            await Assertions.Expect(nodeLocator).ToBeHiddenAsync();
-        else
-            await Assertions.Expect(nodeLocator).ToBeVisibleAsync();
+        await AssertNodeDisplay(nodeLocator, hidden: defaultChecked);
 
         // Toggle back to original state
         if (defaultChecked)
             await legendCheckbox.CheckAsync();
         else
             await legendCheckbox.UncheckAsync();
-        await _page.WaitForTimeoutAsync(300);
+        await AssertNodeDisplay(nodeLocator, hidden: !defaultChecked);
+    }
 
-        if (defaultChecked)
-            await Assertions.Expect(nodeLocator).ToBeVisibleAsync();
-        else
-            await Assertions.Expect(nodeLocator).ToBeHiddenAsync();
+    // Playwright's ToBeHidden/ToBeVisible visibility heuristics don't reliably
+    // detect display:none on SVG <g> elements in headless Chromium, so check
+    // the computed style directly with manual polling instead.
+    private async Task AssertNodeDisplay(ILocator nodeLocator, bool hidden)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        string display;
+        do
+        {
+            display = await nodeLocator.EvaluateAsync<string>("n => getComputedStyle(n).display");
+            if (hidden == (display == "none")) return;
+            await _page.WaitForTimeoutAsync(100);
+        } while (DateTime.UtcNow < deadline);
+
+        Assert.Fail($"Expected node display to be {(hidden ? "'none'" : "not 'none'")}, but was '{display}'");
     }
 
     private async Task<IReadOnlyList<NodeInfo>> ExtractNodes()
