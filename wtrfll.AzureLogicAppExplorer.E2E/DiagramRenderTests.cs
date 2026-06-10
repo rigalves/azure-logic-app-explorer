@@ -125,6 +125,15 @@ public class DiagramRenderTests : IAsyncLifetime
         await VerifyLegendToggle("keyvault", nodes, defaultChecked: false);
         await VerifyLegendToggle("http", nodes, defaultChecked: true);
 
+        // The PNG export rasterizes the SVG via canvas, which throws SecurityError
+        // on the foreignObject-based HTML labels mermaid produces unless they're
+        // stripped and redrawn separately — verify it actually produces a file.
+        var downloadTask = _page.WaitForDownloadAsync(new() { Timeout = 10000 });
+        await _page.Locator("button:has-text(\"Download PNG\")").ClickAsync();
+        var download = await downloadTask;
+        var downloadPath = await download.PathAsync();
+        Assert.True(new FileInfo(downloadPath).Length > 0, "Downloaded PNG was empty.");
+
         Assert.Empty(_consoleErrors);
     }
 

@@ -107,16 +107,41 @@ window.azureLogicAppExplorer = {
         if (!svgEl) return;
 
         // Use rendered bounding rect for pixel dimensions; fall back to viewBox
-        const rect = svgEl.getBoundingClientRect();
+        const svgRect = svgEl.getBoundingClientRect();
         const vb = svgEl.viewBox?.baseVal;
-        const w = rect.width  || (vb && vb.width)  || 1200;
-        const h = rect.height || (vb && vb.height) || 800;
+        const w = svgRect.width  || (vb && vb.width)  || 1200;
+        const h = svgRect.height || (vb && vb.height) || 800;
+
+        // Canvas export can't handle <foreignObject> (HTML labels) — Chrome taints
+        // any canvas drawn from an SVG that contains one. Capture each label
+        // paragraph's text/style/position now, while still in the live DOM, then
+        // strip the foreignObjects from the cloned SVG before rasterizing it, and
+        // redraw the text onto the canvas afterwards.
+        const labels = [];
+        svgEl.querySelectorAll('foreignObject p').forEach(p => {
+            const text = (p.textContent || '').trim().replace(/\s+/g, ' ');
+            if (!text) return;
+            const r = p.getBoundingClientRect();
+            const cs = getComputedStyle(p);
+            labels.push({
+                text,
+                color: cs.color,
+                fontStyle: cs.fontStyle,
+                fontWeight: cs.fontWeight,
+                fontSize: parseFloat(cs.fontSize) || 16,
+                lineHeight: parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.5,
+                x: r.left + r.width / 2 - svgRect.left,
+                y: r.top + r.height / 2 - svgRect.top,
+                maxWidth: r.width,
+            });
+        });
 
         // Inline the SVG so it renders self-contained (no external stylesheet deps)
         const clone = svgEl.cloneNode(true);
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         clone.setAttribute('width', w);
         clone.setAttribute('height', h);
+        clone.querySelectorAll('foreignObject').forEach(fo => fo.remove());
         const svgData = new XMLSerializer().serializeToString(clone);
         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const svgUrl = URL.createObjectURL(svgBlob);
@@ -133,17 +158,47 @@ window.azureLogicAppExplorer = {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             URL.revokeObjectURL(svgUrl);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (const label of labels) {
+                ctx.fillStyle = label.color;
+                ctx.font = `${label.fontStyle} ${label.fontWeight} ${label.fontSize * scale}px "trebuchet ms", verdana, arial, sans-serif`;
+                this._drawWrappedText(ctx, label.text, label.x * scale, label.y * scale, label.maxWidth * scale, label.lineHeight * scale);
+            }
+
             const a = document.createElement('a');
             a.download = filename;
             a.href = canvas.toDataURL('image/png');
             a.click();
         };
         img.onerror = () => {
-            // SVG-to-canvas failed (e.g. foreign object security); fall back to SVG download
+            // SVG-to-canvas failed; fall back to SVG download
             URL.revokeObjectURL(svgUrl);
             this.downloadDiagramSvg(filename.replace(/\.png$/i, '.svg'));
         };
         img.src = svgUrl;
+    },
+
+    // Word-wraps `text` to fit `maxWidth`, drawing the resulting lines centered
+    // on (cx, cy) using the canvas context's current font/fillStyle.
+    _drawWrappedText(ctx, text, cx, cy, maxWidth, lineHeight) {
+        const words = text.split(' ');
+        const lines = [];
+        let line = '';
+        for (const word of words) {
+            const candidate = line ? `${line} ${word}` : word;
+            if (line && ctx.measureText(candidate).width > maxWidth) {
+                lines.push(line);
+                line = word;
+            } else {
+                line = candidate;
+            }
+        }
+        if (line) lines.push(line);
+
+        const startY = cy - ((lines.length - 1) * lineHeight) / 2;
+        lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
     },
 
     downloadDiagramSvg(filename) {
