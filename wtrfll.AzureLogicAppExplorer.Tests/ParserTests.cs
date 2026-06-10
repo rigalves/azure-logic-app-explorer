@@ -131,6 +131,51 @@ public class ParserTests
     }
 
     [Fact]
+    public void Parser_Http_ExtractsMethod()
+    {
+        var edges = ParseAllTypes();
+        var edge = edges.Single(e => e.ActionName == "Call_External_API");
+
+        Assert.Equal("POST", edge.Method);
+    }
+
+    [Fact]
+    public void Parser_ApiConnection_ExtractsMethod_Uppercased()
+    {
+        var edges = ParseAllTypes();
+        var edge = edges.Single(e => e.ActionName == "Sync_to_Salesforce");
+
+        // Fixture has lowercase "post" — should be normalized to uppercase
+        Assert.Equal("POST", edge.Method);
+    }
+
+    [Fact]
+    public void ParseTrigger_Http_WithMethod_SetsMethodAndDisplayType()
+    {
+        var (parser, connections) = Setup();
+        var doc = JsonDocument.Parse("""
+            {
+              "definition": {
+                "triggers": {
+                  "When_HTTP_request_received": {
+                    "type": "Request",
+                    "kind": "Http",
+                    "inputs": { "method": "POST" }
+                  }
+                },
+                "actions": {}
+              }
+            }
+            """);
+
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.NotNull(trigger);
+        Assert.Equal("POST", trigger.Method);
+        Assert.Equal("API (POST)", trigger.DisplayType);
+    }
+
+    [Fact]
     public void Parser_ApiConnection_Salesforce_IsDistinct()
     {
         var edges = ParseAllTypes();
@@ -298,6 +343,18 @@ public class ParserTests
     public void ClassifyWorkflow_NoTrigger_DefaultsToOther()
     {
         Assert.Equal(WorkflowClassification.Other, WorkflowParser.ClassifyWorkflow("wf-some-workflow", null));
+    }
+
+    [Theory]
+    [InlineData("lapp-eus2-nsrv-diagnosis-entry-pub-prod-01", WorkflowClassification.Pub)]
+    [InlineData("lapp-eus2-nsrv-diagnosis-entry-sub-prod-01", WorkflowClassification.Sub)]
+    [InlineData("wf-esp-diagnosis-entry-msp-dx-info-publish", WorkflowClassification.Pub)]
+    [InlineData("wf-esp-diagnosis-entry-msp-dx-info-subscribe", WorkflowClassification.Sub)]
+    public void ClassifyWorkflow_PubSubSegmentInName_ClassifiesAccordingly(string name, WorkflowClassification expected)
+    {
+        // Recurrence trigger so the only signal is the "pub"/"sub" name segment
+        var trigger = new TriggerInfo("Recurrence", null);
+        Assert.Equal(expected, WorkflowParser.ClassifyWorkflow(name, trigger));
     }
 
     [Fact]

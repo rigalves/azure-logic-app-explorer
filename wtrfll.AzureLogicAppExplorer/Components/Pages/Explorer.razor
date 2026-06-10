@@ -279,9 +279,7 @@
                         <th>Domain</th>
                         <th>Trigger</th>
                         <th>Triggered By</th>
-                        <th>Action</th>
-                        <th>Type</th>
-                        <th>Target</th>
+                        <th>Interactions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -289,51 +287,40 @@
                     {
                         @foreach (var wf in app.Workflows)
                         {
-                            @if (wf.Edges.Count == 0)
-                            {
-                                <tr>
-                                    <td class="text-muted">@app.Name</td>
-                                    <td class="text-muted">@wf.Name</td>
-                                    <td class="text-muted">@wf.Classification</td>
-                                    <td class="text-muted">@(wf.Domain ?? "")</td>
-                                    <td class="text-muted">@(wf.Trigger?.DisplayType ?? "")</td>
-                                    <td class="text-muted">@(wf.Trigger?.Source ?? "")</td>
-                                    <td colspan="3" class="text-muted fst-italic">no outbound calls</td>
-                                </tr>
-                            }
-                            else
-                            {
-                                @foreach (var edge in wf.Edges)
+                            <tr>
+                                <td class="text-muted">@app.Name</td>
+                                <td class="text-muted">@wf.Name</td>
+                                <td class="text-muted">@wf.Classification</td>
+                                <td class="text-muted">@(wf.Domain ?? "")</td>
+                                <td class="text-muted">@(wf.Trigger?.DisplayType ?? "")</td>
+                                <td class="text-muted">@(wf.Trigger?.Source ?? "")</td>
+                                @if (wf.Edges.Count == 0)
                                 {
-                                    <tr>
-                                        <td>@app.Name</td>
-                                        <td>@wf.Name</td>
-                                        <td>@wf.Classification</td>
-                                        <td>@(wf.Domain ?? "")</td>
-                                        <td>@(wf.Trigger?.DisplayType ?? "")</td>
-                                        <td>@(wf.Trigger?.Source ?? "")</td>
-                                        <td>@edge.ActionName</td>
-                                        <td>
-                                            <span class="badge @BadgeClass(edge.CallType)">@edge.CallType</span>
-                                        </td>
-                                        <td>
-                                            @if (edge.Target.RawExpression is not null)
-                                            {
-                                                <span title="@edge.Target.RawExpression"
-                                                      class="fst-italic text-muted">⟨dynamic⟩</span>
-                                                <br />
-                                                <code class="small text-muted" style="word-break:break-all;">
-                                                    @edge.Target.RawExpression
-                                                </code>
-                                            }
-                                            else
-                                            {
-                                                @edge.Target.Name
-                                            }
-                                        </td>
-                                    </tr>
+                                    <td class="text-muted fst-italic">no outbound calls</td>
                                 }
-                            }
+                                else
+                                {
+                                    <td>
+                                        @foreach (var edge in wf.Edges)
+                                        {
+                                            <div class="mb-1">
+                                                <span class="badge @BadgeClass(edge.CallType)">
+                                                    @edge.CallType@(edge.Method is not null ? $" {edge.Method}" : "")
+                                                </span>
+                                                @if (edge.Target.RawExpression is not null)
+                                                {
+                                                    <span title="@edge.Target.RawExpression"
+                                                          class="fst-italic text-muted">⟨dynamic⟩</span>
+                                                }
+                                                else
+                                                {
+                                                    @edge.Target.Name
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                }
+                            </tr>
                         }
                     }
                 </tbody>
@@ -354,7 +341,7 @@
     private string _appSearch = "";
     private string _wfSearch = "";
     private string _keyword = "";
-    private DiagramMode _mode = DiagramMode.Summary;
+    private DiagramMode _mode = DiagramMode.Detail;
     private bool _diagramRendered;
     private string _lastMermaid = "";
 
@@ -570,7 +557,7 @@
     private async Task DownloadCsv()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Logic App,Workflow,Classification,Domain,Trigger Type,Triggered By,Trigger Kind,Trigger Entity,Action Name,Call Type,Target,Raw Expression");
+        sb.AppendLine("Logic App,Workflow,Classification,Domain,Trigger Type,Triggered By,Trigger Kind,Trigger Entity,Trigger Method,Interactions");
 
         foreach (var app in FilteredInventory.LogicApps)
         {
@@ -584,23 +571,18 @@
                 var triggeredBy    = CsvEsc(wf.Trigger?.Source ?? string.Empty);
                 var triggerKind    = CsvEsc(wf.Trigger?.Kind   ?? string.Empty);
                 var triggerEntity  = CsvEsc(wf.Trigger?.EntityName ?? string.Empty);
+                var triggerMethod  = CsvEsc(wf.Trigger?.Method ?? string.Empty);
 
-                if (wf.Edges.Count == 0)
-                {
-                    sb.AppendLine(string.Join(",", appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity, "", "", "", ""));
-                }
-                else
-                {
-                    foreach (var edge in wf.Edges)
+                var interactions = wf.Edges.Count == 0
+                    ? string.Empty
+                    : string.Join("; ", wf.Edges.Select(edge =>
                     {
-                        sb.AppendLine(string.Join(",",
-                            appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity,
-                            CsvEsc(edge.ActionName),
-                            edge.CallType.ToString(),
-                            CsvEsc(edge.Target.Name),
-                            CsvEsc(edge.Target.RawExpression ?? string.Empty)));
-                    }
-                }
+                        var callType = edge.CallType.ToString() + (edge.Method is not null ? $" {edge.Method}" : "");
+                        var target = edge.Target.RawExpression is not null ? "⟨dynamic⟩" : edge.Target.Name;
+                        return $"{callType}: {target}";
+                    }));
+
+                sb.AppendLine(string.Join(",", appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity, triggerMethod, CsvEsc(interactions)));
             }
         }
 

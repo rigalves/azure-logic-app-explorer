@@ -118,6 +118,7 @@ public sealed partial class WorkflowParser
     private static CallEdge ParseHttp(string name, JsonElement node, ParametersLookup parameters)
     {
         string? rawUri = null;
+        string? method = null;
 
         if (node.TryGetProperty("inputs", out var inputs))
         {
@@ -126,11 +127,13 @@ public sealed partial class WorkflowParser
             else if (inputs.TryGetProperty("subscribe", out var sub) &&
                      sub.TryGetProperty("uri", out var subUri))
                 rawUri = subUri.GetString();
+
+            method = ExtractMethod(inputs);
         }
 
         var (targetName, isExpr) = ResolveUri(rawUri, parameters);
         return new CallEdge(name, CallType.Http,
-            new ExternalTarget(CallType.Http, targetName, isExpr ? rawUri : null));
+            new ExternalTarget(CallType.Http, targetName, isExpr ? rawUri : null), method);
     }
 
     private static CallEdge ParseFunction(string name, JsonElement node, ConnectionsLookup connections)
@@ -171,23 +174,28 @@ public sealed partial class WorkflowParser
     private static CallEdge ParseApiConnection(string name, JsonElement node, ConnectionsLookup connections)
     {
         string? refName = null;
+        string? method = null;
 
-        if (node.TryGetProperty("inputs", out var inputs) &&
-            inputs.TryGetProperty("host", out var host) &&
-            host.TryGetProperty("connection", out var conn) &&
-            conn.TryGetProperty("referenceName", out var refProp))
-            refName = refProp.GetString();
+        if (node.TryGetProperty("inputs", out var inputs))
+        {
+            if (inputs.TryGetProperty("host", out var host) &&
+                host.TryGetProperty("connection", out var conn) &&
+                conn.TryGetProperty("referenceName", out var refProp))
+                refName = refProp.GetString();
+
+            method = ExtractMethod(inputs);
+        }
 
         if (refName is not null && connections.TryGet(refName, out var info))
         {
             // Salesforce's display name is generic ("Salesforce") for every connection,
             // so use the action name to give each operation its own node.
             var targetName = info.CallType == CallType.Salesforce ? name : info.DisplayName;
-            return new CallEdge(name, info.CallType, new ExternalTarget(info.CallType, targetName));
+            return new CallEdge(name, info.CallType, new ExternalTarget(info.CallType, targetName), method);
         }
 
         return new CallEdge(name, CallType.ManagedConnector,
-            new ExternalTarget(CallType.ManagedConnector, refName ?? "unknown-connection"));
+            new ExternalTarget(CallType.ManagedConnector, refName ?? "unknown-connection"), method);
     }
 
     private static CallEdge ParseServiceProvider(
@@ -253,13 +261,16 @@ public sealed partial class WorkflowParser
             var node = trigger.Value;
             if (!node.TryGetProperty("type", out var typeProp)) continue;
 
+            var inputs = node.TryGetProperty("inputs", out var triggerInputs) ? triggerInputs : default;
+            var method = inputs.ValueKind == JsonValueKind.Object ? ExtractMethod(inputs) : null;
+
             return (typeProp.GetString() ?? "").ToLowerInvariant() switch
             {
                 "serviceprovider" => ParseServiceProviderTrigger(node, parameters),
-                "request"         => new TriggerInfo("Http", null),
-                "http" or "httpwebhook" => new TriggerInfo("Http", null),
+                "request"         => new TriggerInfo("Http", null, Method: method),
+                "http" or "httpwebhook" => new TriggerInfo("Http", null, Method: method),
                 "recurrence"      => new TriggerInfo("Recurrence", null),
-                "apiconnection" or "apiconnectionwebhook" => new TriggerInfo("ApiConnection", null),
+                "apiconnection" or "apiconnectionwebhook" => new TriggerInfo("ApiConnection", null, Method: method),
                 var t             => new TriggerInfo(t, null),
             };
         }
@@ -305,10 +316,15 @@ public sealed partial class WorkflowParser
         return null;
     }
 
+    // Name segments (split on '-'/'_') that indicate a Pub/Sub role.
+    private static readonly string[] PubSegments = ["pub", "publisher", "publish"];
+    private static readonly string[] SubSegments = ["sub", "subscriber", "subscribe"];
+
     /// <summary>
     /// Classifies a workflow's role using its name and trigger:
-    /// "-publisher"/"-subscriber" name suffixes win; otherwise an HTTP/API-triggered
-    /// workflow is treated as a Facade; everything else is "Other".
+    /// "-publisher"/"-subscriber" name suffixes win; otherwise any "pub"/"sub"-like
+    /// segment in the name (split on '-'/'_') indicates Pub/Sub; otherwise an
+    /// HTTP/API-triggered workflow is treated as a Facade; everything else is "Other".
     /// </summary>
     public static WorkflowClassification ClassifyWorkflow(string workflowName, TriggerInfo? trigger)
     {
@@ -318,10 +334,39 @@ public sealed partial class WorkflowParser
         if (workflowName.EndsWith("-subscriber", StringComparison.OrdinalIgnoreCase))
             return WorkflowClassification.Sub;
 
+        var segments = workflowName.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Any(s => PubSegments.Contains(s, StringComparer.OrdinalIgnoreCase)))
+            return WorkflowClassification.Pub;
+
+        if (segments.Any(s => SubSegments.Contains(s, StringComparer.OrdinalIgnoreCase)))
+            return WorkflowClassification.Sub;
+
         if (trigger?.Kind is "Http" or "ApiConnection")
             return WorkflowClassification.Facade;
 
         return WorkflowClassification.Other;
+    }
+
+    /// <summary>
+    /// Extracts the HTTP method from an inputs element: a single "method" string
+    /// (uppercased), or a "methods" array joined with "/". Returns null if absent.
+    /// </summary>
+    private static string? ExtractMethod(JsonElement inputs)
+    {
+        if (inputs.TryGetProperty("method", out var method) && method.ValueKind == JsonValueKind.String)
+            return method.GetString()?.ToUpperInvariant();
+
+        if (inputs.TryGetProperty("methods", out var methods) && methods.ValueKind == JsonValueKind.Array)
+        {
+            var values = methods.EnumerateArray()
+                .Select(m => m.GetString()?.ToUpperInvariant())
+                .Where(m => m is not null)
+                .ToList();
+            return values.Count > 0 ? string.Join("/", values) : null;
+        }
+
+        return null;
     }
 
     // ── Service Bus helpers ───────────────────────────────────────────────────

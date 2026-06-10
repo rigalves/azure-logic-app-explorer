@@ -20,20 +20,28 @@ public enum CallType
 /// <param name="Kind">Trigger kind string: "ServiceBus", "Http", "Recurrence", "ApiConnection", etc.</param>
 /// <param name="EntityName">Queue or topic name for ServiceBus triggers; null for other kinds.</param>
 /// <param name="EntityKind">"Topic" or "Queue" for ServiceBus triggers; null otherwise.</param>
-public sealed record TriggerInfo(string Kind, string? EntityName, string? EntityKind = null)
+/// <param name="Method">HTTP method (GET, POST, ...) for Http/ApiConnection triggers, or null when not applicable/known.</param>
+public sealed record TriggerInfo(string Kind, string? EntityName, string? EntityKind = null, string? Method = null)
 {
-    /// <summary>Friendly trigger type label, e.g. "Topic Event", "Queue Event", "API", "Timer (Recurrence)".</summary>
-    public string DisplayType => (Kind, EntityKind) switch
+    /// <summary>Friendly trigger type label, e.g. "Topic Event", "Queue Event", "API (POST)", "Timer (Recurrence)".</summary>
+    public string DisplayType
     {
-        ("ServiceBus", "Topic") => "Topic Event",
-        ("ServiceBus", "Queue") => "Queue Event",
-        ("ServiceBus", _)       => "Service Bus Event",
-        ("Http", _)             => "API",
-        ("ApiConnection", _)    => "API Connector",
-        ("Recurrence", _)       => "Timer (Recurrence)",
-        ("ServiceProvider", _)  => "Service Provider",
-        _                       => Kind,
-    };
+        get
+        {
+            var baseType = (Kind, EntityKind) switch
+            {
+                ("ServiceBus", "Topic") => "Topic Event",
+                ("ServiceBus", "Queue") => "Queue Event",
+                ("ServiceBus", _)       => "Service Bus Event",
+                ("Http", _)             => "API",
+                ("ApiConnection", _)    => "API Connector",
+                ("Recurrence", _)       => "Timer (Recurrence)",
+                ("ServiceProvider", _)  => "Service Provider",
+                _                       => Kind,
+            };
+            return Method is not null ? $"{baseType} ({Method})" : baseType;
+        }
+    }
 
     /// <summary>Friendly "what triggered this" — entity name when known, else a generic description.</summary>
     public string Source => EntityName ?? Kind switch
@@ -61,10 +69,12 @@ public sealed record ExternalTarget(
 );
 
 /// <summary>One outbound call edge extracted from an action in a workflow.</summary>
+/// <param name="Method">HTTP method (GET, POST, ...) for Http/ApiConnection actions, or null when not applicable/known.</param>
 public sealed record CallEdge(
     string ActionName,
     CallType CallType,
-    ExternalTarget Target
+    ExternalTarget Target,
+    string? Method = null
 );
 
 public sealed class WorkflowInfo
