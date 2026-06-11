@@ -74,47 +74,6 @@ public class FilterTests
     }
 
     [Fact]
-    public void LogicAppFilter_ScopesToOneApp()
-    {
-        var result = InventoryFilter.Apply(BuildInventory(), logicAppName: "lapp-orders");
-        Assert.Single(result.LogicApps);
-        Assert.Equal("lapp-orders", result.LogicApps[0].Name);
-        Assert.Equal(2, result.LogicApps[0].Workflows.Count);
-    }
-
-    [Fact]
-    public void LogicAppFilter_IsCaseInsensitive()
-    {
-        var result = InventoryFilter.Apply(BuildInventory(), logicAppName: "LAPP-ORDERS");
-        Assert.Single(result.LogicApps);
-    }
-
-    [Fact]
-    public void LogicAppFilter_UnknownName_ReturnsEmpty()
-    {
-        var result = InventoryFilter.Apply(BuildInventory(), logicAppName: "does-not-exist");
-        Assert.Empty(result.LogicApps);
-    }
-
-    [Fact]
-    public void WorkflowFilter_ScopesToOneWorkflow()
-    {
-        var result = InventoryFilter.Apply(BuildInventory(), workflowName: "wf-create-order");
-        Assert.Single(result.LogicApps);
-        Assert.Single(result.LogicApps[0].Workflows);
-        Assert.Equal("wf-create-order", result.LogicApps[0].Workflows[0].Name);
-    }
-
-    [Fact]
-    public void WorkflowFilter_DropsAppsWithNoMatch()
-    {
-        // wf-cancel-order only exists in lapp-orders, so lapp-patients should be dropped
-        var result = InventoryFilter.Apply(BuildInventory(), workflowName: "wf-cancel-order");
-        Assert.Single(result.LogicApps);
-        Assert.Equal("lapp-orders", result.LogicApps[0].Name);
-    }
-
-    [Fact]
     public void KeywordFilter_MatchesOnTargetName()
     {
         var result = InventoryFilter.Apply(BuildInventory(), keyword: "salesforce");
@@ -145,15 +104,6 @@ public class FilterTests
     {
         var result = InventoryFilter.Apply(BuildInventory(), keyword: "xyzzy-does-not-exist");
         Assert.Empty(result.LogicApps);
-    }
-
-    [Fact]
-    public void CombinedFilter_AppAndKeyword()
-    {
-        var result = InventoryFilter.Apply(BuildInventory(),
-            logicAppName: "lapp-orders", keyword: "salesforce");
-        Assert.Single(result.LogicApps);
-        Assert.Single(result.LogicApps[0].Workflows); // only wf-create-order has Salesforce
     }
 
     private static Inventory BuildInventoryWithStoppedApp() => new()

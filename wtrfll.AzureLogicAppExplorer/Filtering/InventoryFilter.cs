@@ -5,22 +5,14 @@ namespace wtrfll.AzureLogicAppExplorer.Filtering;
 public static class InventoryFilter
 {
     /// <summary>
-    /// Returns a new Inventory containing only the apps/workflows/edges that match all supplied filters.
-    /// Null/empty filter values are treated as "no filter" for that dimension.
+    /// Returns a new Inventory containing only the workflows whose name, trigger, domain,
+    /// classification, or call edges match the keyword. A null/empty keyword returns the
+    /// inventory unchanged.
     /// </summary>
-    public static Inventory Apply(
-        Inventory source,
-        string? logicAppName = null,
-        string? workflowName = null,
-        string? keyword = null)
+    public static Inventory Apply(Inventory source, string? keyword = null)
     {
-        var apps = source.LogicApps.AsEnumerable();
-
-        if (!string.IsNullOrWhiteSpace(logicAppName))
-            apps = apps.Where(a => a.Name.Equals(logicAppName, StringComparison.OrdinalIgnoreCase));
-
-        var filtered = apps
-            .Select(app => FilterApp(app, workflowName, keyword))
+        var filtered = source.LogicApps
+            .Select(app => FilterApp(app, keyword))
             .Where(a => a is not null)
             .Select(a => a!)
             .ToList();
@@ -28,21 +20,18 @@ public static class InventoryFilter
         return new Inventory { LogicApps = filtered, ScannedAt = source.ScannedAt };
     }
 
-    private static LogicAppInfo? FilterApp(LogicAppInfo app, string? workflowName, string? keyword)
+    private static LogicAppInfo? FilterApp(LogicAppInfo app, string? keyword)
     {
         var workflows = app.Workflows.AsEnumerable();
-
-        if (!string.IsNullOrWhiteSpace(workflowName))
-            workflows = workflows.Where(w => w.Name.Equals(workflowName, StringComparison.OrdinalIgnoreCase));
 
         if (!string.IsNullOrWhiteSpace(keyword))
             workflows = workflows.Where(w => WorkflowMatchesKeyword(w, keyword));
 
         var list = workflows.ToList();
 
-        // If a filter reduced workflows to zero, drop the whole app — but never drop a
+        // If the keyword reduced workflows to zero, drop the whole app — but never drop a
         // stopped app, since it had no workflows to begin with and must stay visible.
-        if (app.Workflows.Count > 0 && list.Count == 0 && (workflowName is not null || keyword is not null))
+        if (app.Workflows.Count > 0 && list.Count == 0 && keyword is not null)
             return null;
 
         return new LogicAppInfo { Name = app.Name, Workflows = list, IsRunning = app.IsRunning, ScanErrors = app.ScanErrors };
