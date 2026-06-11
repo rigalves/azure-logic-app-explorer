@@ -45,6 +45,15 @@ exactly in code, tests, and architecture discussion.
   (connections.json → `ConnectionsLookup`) and `WorkflowParser` (inline `ServiceProvider`
   actions/triggers) both read from this one module instead of cross-calling each other.
 
+## Workflow interactions
+
+- **Interaction** (`InteractionView`, built by `WorkflowInteractions.Build`) — one deduplicated
+  outbound call shown as a chip: a Call Type, an optional "detail" (HTTP method, or friendly
+  Service Bus / Key Vault operation), a target, an optional raw expression, and a count of how
+  many edges collapsed into it. The Raw Inventory table and the CSV export both project a
+  workflow's Call Edges through this one module, so the chips shown on screen and the rows
+  written to CSV can never disagree.
+
 ## Diagram presentation
 
 - **Node Kind** — the kind of node a diagram can draw (`NodeKind`). Eight kinds mirror the Call

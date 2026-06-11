@@ -311,7 +311,7 @@
                                 else
                                 {
                                     <td>
-                                        @foreach (var interaction in BuildInteractions(wf))
+                                        @foreach (var interaction in WorkflowInteractions.Build(wf))
                                         {
                                             <div class="mb-1">
                                                 <span class="badge @BadgeClass(interaction.CallType)">
@@ -586,7 +586,7 @@
 
                 var interactions = wf.Edges.Count == 0
                     ? string.Empty
-                    : string.Join("\n", BuildInteractions(wf).Select(i =>
+                    : string.Join("\n", WorkflowInteractions.Build(wf).Select(i =>
                     {
                         var callType = i.CallType.ToString() + (i.Detail is not null ? $" {i.Detail}" : "");
                         var target = i.RawExpression ?? i.Target;
@@ -628,29 +628,6 @@
         var q = '"'.ToString();
         return q + s.Replace(q, q + q) + q;
     }
-
-    // ── Interactions ─────────────────────────────────────────────────────────
-
-    /// <summary>One deduplicated interaction shown as a chip in the Raw Inventory and CSV.</summary>
-    private sealed record InteractionView(CallType CallType, string? Detail, string Target, string? RawExpression, int Count);
-
-    /// <summary>
-    /// Builds the deduplicated, ordered list of interactions for a workflow's edges.
-    /// "Detail" is the HTTP method (Http/ApiConnection) or friendly operation
-    /// (ServiceBus/KeyVault). Identical interactions (same type/detail/target) are
-    /// collapsed into one entry with a Count, in first-seen order.
-    /// </summary>
-    private static List<InteractionView> BuildInteractions(WorkflowInfo wf) =>
-        wf.Edges
-            .Select(e => new InteractionView(
-                e.CallType,
-                e.Method ?? e.Operation,
-                e.Target.Name + (e.Target.Path ?? ""),
-                e.Target.RawExpression,
-                1))
-            .GroupBy(i => (i.CallType, i.Detail, i.Target, i.RawExpression))
-            .Select(g => g.First() with { Count = g.Count() })
-            .ToList();
 
     // ── Styling ───────────────────────────────────────────────────────────────
 
