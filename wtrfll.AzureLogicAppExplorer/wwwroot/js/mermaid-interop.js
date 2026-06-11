@@ -27,13 +27,15 @@ window.azureLogicAppExplorer = {
 
         const style = document.createElement('style');
         style.textContent = `
-            #mermaid-diagram svg .flowchart-link {
-                cursor: pointer;
+            #mermaid-diagram svg .edgePaths path {
                 transition: stroke 0.1s ease, stroke-width 0.1s ease;
             }
-            #mermaid-diagram svg .flowchart-link:hover {
+            #mermaid-diagram svg .edgePaths path.edge-hover {
                 stroke: #fd7e14 !important;
                 stroke-width: 3px !important;
+            }
+            #mermaid-diagram svg .edge-hit {
+                cursor: pointer;
             }
         `;
         document.head.appendChild(style);
@@ -51,9 +53,31 @@ window.azureLogicAppExplorer = {
             const renderId = 'mmd-' + Math.random().toString(36).slice(2);
             const { svg } = await mermaid.render(renderId, definition);
             el.innerHTML = svg;
+            this._wireEdgeHover(el);
         } catch (e) {
             el.innerHTML = `<pre class="text-danger small">Mermaid render error:\n${e.message}\n\nDefinition:\n${definition}</pre>`;
         }
+    },
+
+    // Adds an oversized invisible "hit area" path on top of each edge so that
+    // hovering near (not just exactly on) the thin visible line highlights it.
+    _wireEdgeHover(el) {
+        el.querySelectorAll('.edgePaths path').forEach(path => {
+            const hit = path.cloneNode();
+            if (path.id) hit.dataset.hitFor = path.id;
+            hit.removeAttribute('id');
+            hit.removeAttribute('class');
+            hit.classList.add('edge-hit');
+            hit.setAttribute('stroke', 'transparent');
+            hit.setAttribute('stroke-width', '12');
+            hit.setAttribute('fill', 'none');
+            hit.setAttribute('marker-end', '');
+            hit.setAttribute('marker-start', '');
+            path.insertAdjacentElement('afterend', hit);
+
+            hit.addEventListener('mouseenter', () => path.classList.add('edge-hover'));
+            hit.addEventListener('mouseleave', () => path.classList.remove('edge-hover'));
+        });
     },
 
     // Hides/shows nodes (and their connected edges) belonging to the given
@@ -75,7 +99,8 @@ window.azureLogicAppExplorer = {
         });
 
         svg.querySelectorAll('.edgePaths > path, .edge').forEach(edge => {
-            const hide = hiddenNodeIds.some(nid => (edge.id || '').includes(nid));
+            const edgeId = edge.id || edge.dataset.hitFor || '';
+            const hide = hiddenNodeIds.some(nid => edgeId.includes(nid));
             edge.style.display = hide ? 'none' : '';
         });
 

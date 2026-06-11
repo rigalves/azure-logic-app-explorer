@@ -4,11 +4,14 @@
 @inject ScanService Scan
 @inject IJSRuntime JS
 
-<PageTitle>wtrfll.AzureLogicAppExplorer – Explorer</PageTitle>
+<PageTitle>Flow Atlas – Logic App &amp; Service Bus Explorer</PageTitle>
 
 @* ── Top bar ── *@
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
-    <h4 class="mb-0">wtrfll.AzureLogicAppExplorer</h4>
+    <div class="lh-sm">
+        <h4 class="mb-0">Flow Atlas</h4>
+        <small class="text-muted">Logic App &amp; Service Bus Explorer</small>
+    </div>
 
     <button class="btn btn-primary btn-sm" @onclick="RunScan" disabled="@Scan.IsScanning">
         @if (Scan.IsScanning)
@@ -28,6 +31,8 @@
             Last scan: @Scan.CurrentInventory.ScannedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
             · @Scan.CurrentInventory.LogicApps.Count app(s)
             · @Scan.CurrentInventory.LogicApps.Sum(a => a.Workflows.Count) workflow(s)
+            · @Scan.CurrentInventory.ServiceBusTopics.Count topic(s)
+            · @Scan.CurrentInventory.ServiceBusTopics.Sum(t => t.Subscriptions.Count) subscription(s)
         </small>
     }
 </div>
