@@ -12,7 +12,7 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddHttpClient<AzureLogicAppClient>();
+builder.Services.AddHttpClient<ILogicAppReads, AzureLogicAppClient>();
 builder.Services.AddSingleton<ScanService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScanService>());
 

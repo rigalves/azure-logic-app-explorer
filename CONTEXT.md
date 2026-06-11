@@ -27,6 +27,15 @@ exactly in code, tests, and architecture discussion.
   seam that turns a Selection into a narrowed Inventory — the Explorer view, the table, the
   diagram, and the tests all cross it the same way.
 
+## Scan orchestration
+
+- **Logic App Reads** (`ILogicAppReads`) — the narrow set of ARM/Service Bus reads
+  `ScanService` needs to build an Inventory: list Standard Logic Apps, list/read workflows,
+  read connections.json/parameters.json, and enumerate Service Bus namespaces/topics/
+  subscriptions. `AzureLogicAppClient` is the live ARM adapter; `FakeLogicAppReads` (test-only)
+  is a fixture-backed adapter, so `ScanService`'s orchestration — parallel scanning, per-app/
+  per-workflow error aggregation, stopped-app skipping — is tested without an Azure login.
+
 ## Diagram presentation
 
 - **Node Kind** — the kind of node a diagram can draw (`NodeKind`). Eight kinds mirror the Call

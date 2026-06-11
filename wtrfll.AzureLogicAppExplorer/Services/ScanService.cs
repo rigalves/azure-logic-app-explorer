@@ -9,7 +9,7 @@ namespace wtrfll.AzureLogicAppExplorer.Services;
 
 public sealed class ScanService : IHostedService
 {
-    private readonly AzureLogicAppClient _client;
+    private readonly ILogicAppReads _client;
     private readonly ConnectionsParser _connectionsParser = new();
     private readonly ParametersParser _parametersParser = new();
     private readonly WorkflowParser _workflowParser = new();
@@ -36,7 +36,7 @@ public sealed class ScanService : IHostedService
     };
 
     public ScanService(
-        AzureLogicAppClient client,
+        ILogicAppReads client,
         IOptions<AppOptions> opts,
         ILogger<ScanService> logger)
     {

@@ -11,7 +11,7 @@ namespace wtrfll.AzureLogicAppExplorer.Azure;
 /// Reads Standard Logic App artifacts from Azure via ARM-token-authenticated calls.
 /// No Kudu / SCM credentials needed — only RBAC Contributor+ on the resource group.
 /// </summary>
-public sealed class AzureLogicAppClient
+public sealed class AzureLogicAppClient : ILogicAppReads
 {
     private readonly HttpClient _http;
     private readonly AppOptions _opts;
