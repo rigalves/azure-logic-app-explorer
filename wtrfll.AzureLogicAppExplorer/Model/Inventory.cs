@@ -50,6 +50,15 @@ public sealed record TriggerInfo(string Kind, string? EntityName, string? Entity
         "Recurrence"              => "Schedule",
         _                         => "Unknown",
     };
+
+    /// <summary>True when EntityName is a real, resolved queue/topic name rather than an
+    /// unresolved "&lt;parameter:...&gt;" / "&lt;appsetting:...&gt;" placeholder.</summary>
+    public bool HasResolvedEntityName => EntityName is not null && !IsPlaceholder(EntityName);
+
+    /// <summary>True for placeholder entity names (e.g. "&lt;parameter:dxInfo_topicName&gt;")
+    /// produced when a Service Bus queue/topic name could not be resolved to a literal value.</summary>
+    public static bool IsPlaceholder(string entityName) =>
+        entityName.StartsWith('<') && entityName.EndsWith('>');
 }
 
 /// <summary>High-level role a workflow plays in the integration topology.</summary>

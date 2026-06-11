@@ -17,7 +17,7 @@ builder.Services.AddSingleton<ScanService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScanService>());
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options => options.DetailedErrors = true);
 
 var app = builder.Build();
 

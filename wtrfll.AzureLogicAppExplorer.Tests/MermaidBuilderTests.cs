@@ -437,6 +437,142 @@ public class MermaidBuilderTests
         Assert.Contains("classDef servicebus", mmd);
     }
 
+    [Fact]
+    public void Detail_SbTriggeredWorkflow_WithUnresolvedTopicName_GetsTriggerSourceNode_NotServiceBusNode()
+    {
+        // EntityName is a placeholder ("<parameter:...>") because the topic name couldn't be
+        // resolved. It must NOT be treated as a real SB queue/topic — it should get its own
+        // per-workflow "trigger" source node, not be merged into a shared :::servicebus node.
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-subscriber",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-process",
+                            LogicAppName = "lapp-subscriber",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "<parameter:dxInfo_topicName>", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+
+        Assert.Contains(":::trigger", mmd);
+        Assert.DoesNotContain(":::servicebus", mmd);
+        Assert.Contains("&lt;parameter:dxInfo_topicName&gt;", mmd);
+        Assert.Contains("Triggers", mmd);
+    }
+
+    [Fact]
+    public void Detail_PublisherActionAndSubscriberTrigger_WithSamePlaceholder_AreNotMerged()
+    {
+        // Regression test: an outbound edge whose target shares the same placeholder name as
+        // another workflow's unresolved trigger must not collapse into a single shared node.
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-publisher",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-publish",
+                            LogicAppName = "lapp-publisher",
+                            IsStateful = true,
+                            Edges =
+                            [
+                                new CallEdge("Send_To_Topic", CallType.ServiceProvider,
+                                    new ExternalTarget(CallType.ServiceProvider, "<parameter:dxInfo_topicName>")),
+                            ],
+                        },
+                    ],
+                },
+                new LogicAppInfo
+                {
+                    Name = "lapp-subscriber",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-process",
+                            LogicAppName = "lapp-subscriber",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "<parameter:dxInfo_topicName>", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+
+        var nodeDeclarations = mmd.Split('\n')
+            .Count(l => l.Contains("<parameter:dxInfo_topicName>".Replace("<", "&lt;").Replace(">", "&gt;"))
+                        && l.Contains('['));
+        Assert.Equal(2, nodeDeclarations);
+    }
+
+    [Fact]
+    public void Detail_TwoSubscribersWithSamePlaceholderTrigger_ShareOneTriggerNode()
+    {
+        // Two workflows in the same Logic App both triggered by an unresolved
+        // "<parameter:dxInfo_topicName>" topic (different subscriptions on the same
+        // topic) should share a single trigger-source node, with one "Triggers" edge
+        // to each workflow — not two duplicate-looking nodes.
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-subscriber",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-process-a",
+                            LogicAppName = "lapp-subscriber",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "<parameter:dxInfo_topicName>", "Topic"),
+                        },
+                        new WorkflowInfo
+                        {
+                            Name = "wf-process-b",
+                            LogicAppName = "lapp-subscriber",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "<parameter:dxInfo_topicName>", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+
+        var nodeDeclarations = mmd.Split('\n')
+            .Count(l => l.Contains("&lt;parameter:dxInfo_topicName&gt;") && l.Contains('['));
+        Assert.Equal(1, nodeDeclarations);
+
+        var triggerEdges = mmd.Split('\n').Count(l => l.Contains("Triggers"));
+        Assert.Equal(2, triggerEdges);
+    }
+
     // ── Node ID safety ────────────────────────────────────────────────────────
 
     [Fact]

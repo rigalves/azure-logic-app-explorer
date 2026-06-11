@@ -212,7 +212,7 @@ public sealed partial class WorkflowParser
             if (IsServiceBusProviderId(providerId))
             {
                 var entityName = ExtractSbEntityName(inputs, parameters);
-                if (entityName is not null)
+                if (entityName is not null && !TriggerInfo.IsPlaceholder(entityName))
                     return new CallEdge(name, CallType.ServiceBus,
                         new ExternalTarget(CallType.ServiceBus, entityName), Operation: MapServiceBusOperation(operationId));
             }
@@ -418,7 +418,10 @@ public sealed partial class WorkflowParser
     /// <summary>
     /// Extracts the queue or topic name from an inputs element.
     /// Tries entityName (send actions) → queueName → topicName, then resolves @parameters() if needed.
-    /// Returns null when the entity name cannot be determined (falls back to generic SB node).
+    /// When the value is an unresolved @appsettings()/@parameters() reference, falls back to a
+    /// "&lt;appsetting:KEY&gt;" / "&lt;parameter:KEY&gt;" placeholder (see TriggerInfo.IsPlaceholder)
+    /// so the diagram still shows something meaningful instead of "Unknown". Returns null only when
+    /// no entity name field is present at all.
     /// </summary>
     private static string? ExtractSbEntityName(JsonElement inputs, ParametersLookup parameters)
     {
@@ -435,14 +438,19 @@ public sealed partial class WorkflowParser
         }
 
         if (raw is null) return null;
+        if (!raw.StartsWith('@')) return raw;
 
-        if (raw.StartsWith('@'))
-        {
-            var m = ParameterRefRegex().Match(raw);
-            return m.Success && parameters.TryGet(m.Groups[1].Value, out var resolved) ? resolved : null;
-        }
+        var paramMatch = ParameterRefRegex().Match(raw);
+        if (paramMatch.Success)
+            return parameters.TryGet(paramMatch.Groups[1].Value, out var resolved)
+                ? resolved
+                : $"<parameter:{paramMatch.Groups[1].Value}>";
 
-        return raw;
+        var appSettingMatch = AppSettingRefRegex().Match(raw);
+        if (appSettingMatch.Success)
+            return $"<appsetting:{appSettingMatch.Groups[1].Value}>";
+
+        return null;
     }
 
     private static CallEdge ParseChildWorkflow(string name, JsonElement node)

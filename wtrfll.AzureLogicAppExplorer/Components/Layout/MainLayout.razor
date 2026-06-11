@@ -8,7 +8,24 @@
         </div>
 
         <article class="content px-4">
-            @Body
+            <ErrorBoundary @ref="_errorBoundary">
+                <ChildContent>
+                    @Body
+                </ChildContent>
+                <ErrorContent Context="exception">
+                    <div class="alert alert-danger mt-3">
+                        <p class="mb-2"><strong>Something went wrong.</strong> @exception.Message</p>
+                        <button class="btn btn-sm btn-outline-danger me-2" @onclick="ToggleDetails">
+                            @(_showDetails ? "Hide log" : "Show log")
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="Recover">Try again</button>
+                        @if (_showDetails)
+                        {
+                            <pre class="mt-2 error-log">@exception.ToString()</pre>
+                        }
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
         </article>
     </main>
 </div>
@@ -18,3 +35,16 @@
     <a href="" class="reload">Reload</a>
     <a class="dismiss">🗙</a>
 </div>
+
+@code {
+    private ErrorBoundary? _errorBoundary;
+    private bool _showDetails;
+
+    private void ToggleDetails() => _showDetails = !_showDetails;
+
+    private void Recover()
+    {
+        _showDetails = false;
+        _errorBoundary?.Recover();
+    }
+}

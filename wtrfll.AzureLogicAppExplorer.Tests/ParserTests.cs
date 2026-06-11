@@ -342,6 +342,37 @@ public class ParserTests
         Assert.Equal("orders-created-topic", trigger.Source);
     }
 
+    [Fact]
+    public void ParseTrigger_ServiceBusTopic_AppSettingTopicName_FallsBackToPlaceholder()
+    {
+        var (parser, connections) = Setup();
+        var doc = LoadFixture("workflow-topic-appsetting.json");
+        var trigger = parser.ParseTrigger(doc, connections);
+
+        Assert.NotNull(trigger);
+        Assert.Equal("ServiceBus", trigger.Kind);
+        Assert.Equal("Topic", trigger.EntityKind);
+        Assert.Equal("<appsetting:ServiceBusTopicName>", trigger.EntityName);
+        Assert.Equal("<appsetting:ServiceBusTopicName>", trigger.Source);
+        Assert.False(trigger.HasResolvedEntityName);
+    }
+
+    [Fact]
+    public void Parser_ServiceBusAction_UnresolvedParameterTopicName_FallsBackToGenericServiceProvider()
+    {
+        // When an action's topicName is an @parameters() reference that can't be resolved,
+        // it must NOT be classified as CallType.ServiceBus with a placeholder name — that
+        // would merge it with unrelated SB nodes that share the same unresolved placeholder.
+        var (parser, connections) = Setup();
+        var doc = LoadFixture("workflow-sb-action-unresolved.json");
+
+        var edges = parser.Parse(doc, connections);
+        var edge = edges.Single(e => e.ActionName == "Send_To_Topic");
+
+        Assert.Equal(CallType.ServiceProvider, edge.CallType);
+        Assert.Equal("Service Bus", edge.Target.Name);
+    }
+
     [Theory]
     [InlineData("Http", null, "API")]
     [InlineData("ApiConnection", null, "API Connector")]

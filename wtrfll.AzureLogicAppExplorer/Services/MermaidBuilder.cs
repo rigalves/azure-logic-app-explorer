@@ -82,8 +82,8 @@ public sealed partial class MermaidBuilder
         // Pre-register SB trigger nodes so they appear even when no sender is in the filter
         foreach (var app in inventory.LogicApps)
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
-                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
+                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
 
         // Declare Logic App nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
@@ -128,9 +128,9 @@ public sealed partial class MermaidBuilder
             var appId = SafeId("app", app.Name);
             var seen = new HashSet<string>();
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
                 {
-                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
                     if (sbId is not null && seen.Add(sbId))
                         sb.AppendLine(EdgeLine(sbId, appId, "Trigger"));
                 }
@@ -177,8 +177,8 @@ public sealed partial class MermaidBuilder
         // Pre-register SB trigger nodes so they appear even when no sender is in the filter
         foreach (var app in inventory.LogicApps)
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
-                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
+                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
 
         // Declare workflow nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
@@ -223,26 +223,32 @@ public sealed partial class MermaidBuilder
         // Trigger reverse edges: SB → workflow
         foreach (var app in inventory.LogicApps)
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus", EntityName: not null } trig)
+                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
                 {
-                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName));
+                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
                     var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
                     if (sbId is not null)
                         sb.AppendLine(EdgeLine(sbId, wfId, "Trigger"));
                 }
 
         // Trigger-source nodes for non-Service Bus triggers (e.g. "External caller",
-        // "Schedule") — one per workflow
+        // "Schedule") — deduplicated per (app, source, display type) so multiple
+        // workflows sharing the same trigger source (e.g. several subscriptions on
+        // an unresolved topic placeholder) point to one shared node.
         foreach (var app in inventory.LogicApps)
+        {
+            var declared = new HashSet<string>();
             foreach (var wf in app.Workflows)
                 if (HasNonServiceBusTrigger(wf.Trigger))
                 {
                     var trig = wf.Trigger!;
                     var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
-                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+                    var trigId = SafeId("trig", $"{app.Name}_{trig.Source}_{trig.DisplayType}");
+                    if (declared.Add(trigId))
+                        sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
                     sb.AppendLine(EdgeLine(trigId, wfId, "Triggers"));
                 }
+        }
 
         sb.Append(ClassDefs);
         return sb.ToString();
@@ -258,9 +264,10 @@ public sealed partial class MermaidBuilder
     }
 
     /// <summary>True for triggers that need a dedicated trigger-source node (i.e. anything
-    /// other than a Service Bus trigger, which instead points back to its existing topic/queue node).</summary>
+    /// other than a Service Bus trigger with a resolved entity name, which instead points
+    /// back to its existing topic/queue node).</summary>
     private static bool HasNonServiceBusTrigger(TriggerInfo? trigger) =>
-        trigger is not null && !(trigger.Kind == "ServiceBus" && trigger.EntityName is not null);
+        trigger is not null && !(trigger.Kind == "ServiceBus" && trigger.HasResolvedEntityName);
 
     private static string Esc(string s) =>
         s.Replace("\"", "'").Replace("<", "&lt;").Replace(">", "&gt;");
