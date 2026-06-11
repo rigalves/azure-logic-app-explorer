@@ -21,6 +21,11 @@ exactly in code, tests, and architecture discussion.
   (`ServiceBusTopicInfo`).
 - **Inventory** — the full scan result: all Logic Apps, their Workflows and Call Edges, the Service
   Bus Topics, scan errors, and a timestamp. Persisted as a **Snapshot**.
+- **Inventory Selection** — what the user has chosen to view (`InventorySelection`): a set of
+  Logic App names, a set of workflow keys (`appName||wfName`, see `WorkflowKey`), and/or a
+  free-text keyword. `InventorySelection.All` is unfiltered. `InventoryFilter.Apply` is the one
+  seam that turns a Selection into a narrowed Inventory — the Explorer view, the table, the
+  diagram, and the tests all cross it the same way.
 
 ## Diagram presentation
 

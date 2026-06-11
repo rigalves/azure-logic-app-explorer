@@ -138,7 +138,7 @@
                          style="border-bottom:1px solid #dee2e6;">@appName</div>
                     @foreach (var wf in workflows)
                     {
-                        var key = WfKey(appName, wf);
+                        var key = InventorySelection.WorkflowKey(appName, wf);
                         <div class="form-check mb-0 ms-2">
                             <input class="form-check-input" type="checkbox"
                                    id="wf_@key" checked="@_selectedWorkflows.Contains(key)"
@@ -447,43 +447,11 @@
             .Where(g => g.wfs.Any());
 
     // The inventory narrowed to the current filter selections (drives table + diagram)
-    private Inventory FilteredInventory
-    {
-        get
-        {
-            var inv = Scan.CurrentInventory;
-
-            // App filter
-            if (_selectedApps.Count > 0)
-                inv = new Inventory
-                {
-                    LogicApps = inv.LogicApps.Where(a => _selectedApps.Contains(a.Name)).ToList(),
-                    ScannedAt = inv.ScannedAt,
-                };
-
-            // Workflow filter — keys are "appName||wfName"
-            if (_selectedWorkflows.Count > 0)
-                inv = new Inventory
-                {
-                    LogicApps = inv.LogicApps.Select(a => new LogicAppInfo
-                    {
-                        Name = a.Name,
-                        Workflows = a.Workflows
-                            .Where(w => _selectedWorkflows.Contains(WfKey(a.Name, w.Name)))
-                            .ToList(),
-                        IsRunning = a.IsRunning,
-                        ScanErrors = a.ScanErrors,
-                    }).Where(a => a.Workflows.Count > 0 || !a.IsRunning).ToList(),
-                    ScannedAt = inv.ScannedAt,
-                };
-
-            // Keyword filter
-            if (!string.IsNullOrWhiteSpace(_keyword))
-                inv = InventoryFilter.Apply(inv, keyword: _keyword);
-
-            return inv;
-        }
-    }
+    private Inventory FilteredInventory =>
+        InventoryFilter.Apply(Scan.CurrentInventory, new InventorySelection(
+            AppNames: _selectedApps.Count > 0 ? _selectedApps : null,
+            WorkflowKeys: _selectedWorkflows.Count > 0 ? _selectedWorkflows : null,
+            Keyword: _keyword));
 
     private IEnumerable<string> AllScanErrors =>
         Scan.CurrentInventory.ScanErrors
@@ -530,8 +498,6 @@
 
     // ── Selection helpers ─────────────────────────────────────────────────────
 
-    private static string WfKey(string appName, string wfName) => $"{appName}||{wfName}";
-
     private void ToggleApp(string app, bool selected)
     {
         if (selected) _selectedApps.Add(app);
@@ -565,14 +531,14 @@
     {
         foreach (var (appName, wfs) in FilteredWorkflowsByApp)
             foreach (var wf in wfs)
-                _selectedWorkflows.Add(WfKey(appName, wf));
+                _selectedWorkflows.Add(InventorySelection.WorkflowKey(appName, wf));
     }
 
     private void ClearWorkflows()
     {
         foreach (var (appName, wfs) in FilteredWorkflowsByApp)
             foreach (var wf in wfs)
-                _selectedWorkflows.Remove(WfKey(appName, wf));
+                _selectedWorkflows.Remove(InventorySelection.WorkflowKey(appName, wf));
     }
 
     private void ClearFilters()
