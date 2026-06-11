@@ -36,6 +36,15 @@ exactly in code, tests, and architecture discussion.
   is a fixture-backed adapter, so `ScanService`'s orchestration — parallel scanning, per-app/
   per-workflow error aggregation, stopped-app skipping — is tested without an Azure login.
 
+## Connector identity
+
+- **Connector Taxonomy** (`ConnectorTaxonomy`) — the single place that knows what a connector
+  *is*: managed-API slugs (e.g. `salesforce`, `office365`) and `serviceProviderId` values (e.g.
+  `/serviceProviders/serviceBus`, `/serviceProviders/keyVault`) each map to a Call Type, a
+  display name, and (for Service Bus / Key Vault) friendly operation labels. `ConnectionsParser`
+  (connections.json → `ConnectionsLookup`) and `WorkflowParser` (inline `ServiceProvider`
+  actions/triggers) both read from this one module instead of cross-calling each other.
+
 ## Diagram presentation
 
 - **Node Kind** — the kind of node a diagram can draw (`NodeKind`). Eight kinds mirror the Call

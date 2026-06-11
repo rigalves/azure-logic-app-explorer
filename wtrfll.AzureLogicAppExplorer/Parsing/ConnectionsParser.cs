@@ -31,7 +31,7 @@ public sealed class ConnectionsParser
                     : "";
 
                 var connectorSlug = apiId.Split('/').LastOrDefault() ?? "";
-                var (callType, displayName) = ClassifyManagedApi(connectorSlug);
+                var (callType, displayName) = ConnectorTaxonomy.ClassifyManagedApi(connectorSlug);
                 lookup[refName] = new ConnectionInfo(refName, callType, displayName);
             }
         }
@@ -48,8 +48,8 @@ public sealed class ConnectionsParser
                     ? id.GetString() ?? ""
                     : "";
 
-                var displayName = MapServiceProviderId(providerId);
-                var callType = IsKeyVaultProviderId(providerId) ? CallType.KeyVault : CallType.ServiceProvider;
+                var displayName = ConnectorTaxonomy.MapServiceProviderId(providerId);
+                var callType = ConnectorTaxonomy.IsKeyVaultProviderId(providerId) ? CallType.KeyVault : CallType.ServiceProvider;
                 lookup[refName] = new ConnectionInfo(refName, callType, displayName);
             }
         }
@@ -73,40 +73,6 @@ public sealed class ConnectionsParser
 
         return new ConnectionsLookup(lookup);
     }
-
-    private static (CallType, string) ClassifyManagedApi(string slug) => slug.ToLowerInvariant() switch
-    {
-        "salesforce"     => (CallType.Salesforce, "Salesforce"),
-        "office365"      => (CallType.ManagedConnector, "Office 365"),
-        "office365users" => (CallType.ManagedConnector, "Office 365 Users"),
-        "sharepointonline" or "sharepoint" => (CallType.ManagedConnector, "SharePoint"),
-        "sql"            => (CallType.ManagedConnector, "SQL Server (managed)"),
-        "servicebus"     => (CallType.ManagedConnector, "Service Bus (managed)"),
-        "azureblob"      => (CallType.ManagedConnector, "Azure Blob (managed)"),
-        "teams"          => (CallType.ManagedConnector, "Microsoft Teams"),
-        "dynamicscrmonline" or "commondataservice" => (CallType.ManagedConnector, "Dynamics 365"),
-        "sap"            => (CallType.ManagedConnector, "SAP"),
-        "servicenow"     => (CallType.ManagedConnector, "ServiceNow"),
-        var s            => (CallType.ManagedConnector, string.IsNullOrEmpty(s) ? "Unknown connector" : s),
-    };
-
-    public static string MapServiceProviderId(string? providerId) => providerId switch
-    {
-        "/serviceProviders/serviceBus"    => "Service Bus",
-        "/serviceProviders/azureBlob"     => "Azure Blob",
-        "/serviceProviders/sql"           => "SQL Server",
-        "/serviceProviders/azureQueues"   => "Azure Queues",
-        "/serviceProviders/azureTables"   => "Azure Tables",
-        "/serviceProviders/eventHubs"     => "Event Hubs",
-        "/serviceProviders/cosmosDb"      => "Cosmos DB",
-        "/serviceProviders/ftp"           => "FTP",
-        "/serviceProviders/sftp"          => "SFTP",
-        "/serviceProviders/keyVault"      => "Key Vault",
-        var s => s?.Split('/').LastOrDefault() ?? "ServiceProvider",
-    };
-
-    public static bool IsKeyVaultProviderId(string? providerId) =>
-        providerId is not null && providerId.Contains("keyVault", StringComparison.OrdinalIgnoreCase);
 
     private static string? ExtractSegmentAfter(string resourceId, string segment)
     {

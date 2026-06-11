@@ -209,20 +209,20 @@ public sealed partial class WorkflowParser
             var operationId = spConfig.TryGetProperty("operationId", out var opIdProp) ? opIdProp.GetString() : null;
 
             // Service Bus gets a dedicated CallType so it can link with SB-triggered workflows
-            if (IsServiceBusProviderId(providerId))
+            if (ConnectorTaxonomy.IsServiceBusProviderId(providerId))
             {
                 var entityName = ExtractSbEntityName(inputs, parameters);
                 if (entityName is not null && !TriggerInfo.IsPlaceholder(entityName))
                     return new CallEdge(name, CallType.ServiceBus,
-                        new ExternalTarget(CallType.ServiceBus, entityName), Operation: MapServiceBusOperation(operationId));
+                        new ExternalTarget(CallType.ServiceBus, entityName), Operation: ConnectorTaxonomy.MapServiceBusOperation(operationId));
             }
 
             // Key Vault gets a dedicated CallType so it can be hidden independently in the legend
-            if (ConnectionsParser.IsKeyVaultProviderId(providerId))
+            if (ConnectorTaxonomy.IsKeyVaultProviderId(providerId))
                 return new CallEdge(name, CallType.KeyVault,
-                    new ExternalTarget(CallType.KeyVault, ConnectionsParser.MapServiceProviderId(providerId)), Operation: MapKeyVaultOperation(operationId));
+                    new ExternalTarget(CallType.KeyVault, ConnectorTaxonomy.MapServiceProviderId(providerId)), Operation: ConnectorTaxonomy.MapKeyVaultOperation(operationId));
 
-            var displayName = ConnectionsParser.MapServiceProviderId(providerId);
+            var displayName = ConnectorTaxonomy.MapServiceProviderId(providerId);
             return new CallEdge(name, CallType.ServiceProvider,
                 new ExternalTarget(CallType.ServiceProvider, displayName));
         }
@@ -286,7 +286,7 @@ public sealed partial class WorkflowParser
 
         if (inputs.TryGetProperty("serviceProviderConfiguration", out var spConfig) &&
             spConfig.TryGetProperty("serviceProviderId", out var spId) &&
-            IsServiceBusProviderId(spId.GetString() ?? ""))
+            ConnectorTaxonomy.IsServiceBusProviderId(spId.GetString()))
         {
             var operationId = spConfig.TryGetProperty("operationId", out var opId) ? opId.GetString() ?? "" : "";
             var entityKind = operationId.Contains("Topic", StringComparison.OrdinalIgnoreCase) ? "Topic"
@@ -374,46 +374,6 @@ public sealed partial class WorkflowParser
     }
 
     // ── Service Bus helpers ───────────────────────────────────────────────────
-
-    /// <summary>
-    /// Maps a Service Bus serviceProviderConfiguration.operationId to a friendly
-    /// operation label, e.g. "sendMessage" → "Send", "peekLockTopicMessagesV2" → "Receive (Peek-Lock)".
-    /// Returns the raw operationId when it doesn't match a known pattern, or null when absent.
-    /// </summary>
-    private static string? MapServiceBusOperation(string? operationId)
-    {
-        if (operationId is null) return null;
-        var id = operationId.ToLowerInvariant();
-
-        if (id.Contains("send")) return "Send";
-        if (id.Contains("peeklock")) return "Receive (Peek-Lock)";
-        if (id.Contains("receive")) return "Receive";
-        if (id.Contains("complete")) return "Complete";
-        if (id.Contains("abandon")) return "Abandon";
-        if (id.Contains("deadletter")) return "Dead-letter";
-        if (id.Contains("renewlock")) return "Renew Lock";
-
-        return operationId;
-    }
-
-    /// <summary>
-    /// Maps a Key Vault serviceProviderConfiguration.operationId to a friendly
-    /// operation label, e.g. "getSecret" → "Get Secret". Returns the raw operationId
-    /// when it doesn't match a known pattern, or null when absent.
-    /// </summary>
-    private static string? MapKeyVaultOperation(string? operationId)
-    {
-        if (operationId is null) return null;
-        var id = operationId.ToLowerInvariant();
-
-        if (id.Contains("getsecret")) return "Get Secret";
-        if (id.Contains("setsecret")) return "Set Secret";
-
-        return operationId;
-    }
-
-    private static bool IsServiceBusProviderId(string providerId) =>
-        providerId.Contains("serviceBus", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Extracts the queue or topic name from an inputs element.
