@@ -79,12 +79,6 @@ public sealed partial class MermaidBuilder
         var sb = new StringBuilder(LinearCurveDirective + "flowchart LR\n");
         var registry = new TargetRegistry();
 
-        // Pre-register SB trigger nodes so they appear even when no sender is in the filter
-        foreach (var app in inventory.LogicApps)
-            foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
-                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
-
         // Declare Logic App nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
         {
@@ -122,34 +116,16 @@ public sealed partial class MermaidBuilder
                 }
         }
 
-        // Trigger reverse edges: SB → Logic App — deduplicated per (app, SB)
+        // Trigger-source nodes — every triggered workflow gets its own dedicated node
+        // (e.g. "External caller", "orders-queue / Queue Event"), never shared between
+        // workflows, with a "Triggers" edge to its parent Logic App.
         foreach (var app in inventory.LogicApps)
         {
             var appId = SafeId("app", app.Name);
-            var seen = new HashSet<string>();
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
+                if (wf.Trigger is { } trig)
                 {
-                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
-                    if (sbId is not null && seen.Add(sbId))
-                        sb.AppendLine(EdgeLine(sbId, appId, "Trigger"));
-                }
-        }
-
-        // Trigger-source nodes for non-Service Bus triggers (e.g. "External caller",
-        // "Schedule") — deduplicated per (app, source, display type)
-        foreach (var app in inventory.LogicApps)
-        {
-            var appId = SafeId("app", app.Name);
-            var seen = new HashSet<(string, string)>();
-            foreach (var wf in app.Workflows)
-                if (HasNonServiceBusTrigger(wf.Trigger))
-                {
-                    var trig = wf.Trigger!;
-                    if (!seen.Add((trig.Source, trig.DisplayType)))
-                        continue;
-
-                    var trigId = SafeId("trig", $"{app.Name}_{trig.Source}_{trig.DisplayType}");
+                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
                     sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
                     sb.AppendLine(EdgeLine(trigId, appId, "Triggers"));
                 }
@@ -171,14 +147,8 @@ public sealed partial class MermaidBuilder
             return "flowchart LR\n    empty[\"No workflows match the current filter\"]";
 
         var sb = new StringBuilder(LinearCurveDirective + "flowchart LR\n");
-        var registry = new TargetRegistry();
+        var registry = new TargetRegistry(groupByPath: true);
         var multiApp = inventory.LogicApps.Count > 1;
-
-        // Pre-register SB trigger nodes so they appear even when no sender is in the filter
-        foreach (var app in inventory.LogicApps)
-            foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
-                    registry.Register(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
 
         // Declare workflow nodes + register outbound targets
         foreach (var app in inventory.LogicApps)
@@ -197,7 +167,7 @@ public sealed partial class MermaidBuilder
             }
         }
 
-        // Declare target nodes (includes pre-registered SB trigger nodes)
+        // Declare target nodes
         sb.AppendLine();
         foreach (var node in registry.AllNodes())
             sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
@@ -220,35 +190,18 @@ public sealed partial class MermaidBuilder
             }
         }
 
-        // Trigger reverse edges: SB → workflow
+        // Trigger-source nodes — every triggered workflow gets its own dedicated node
+        // (e.g. "External caller", "orders-queue / Queue Event"), never shared between
+        // workflows, with a "Triggers" edge to the workflow.
         foreach (var app in inventory.LogicApps)
             foreach (var wf in app.Workflows)
-                if (wf.Trigger is { Kind: "ServiceBus" } trig && trig.HasResolvedEntityName)
+                if (wf.Trigger is { } trig)
                 {
-                    var sbId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
                     var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                    if (sbId is not null)
-                        sb.AppendLine(EdgeLine(sbId, wfId, "Trigger"));
-                }
-
-        // Trigger-source nodes for non-Service Bus triggers (e.g. "External caller",
-        // "Schedule") — deduplicated per (app, source, display type) so multiple
-        // workflows sharing the same trigger source (e.g. several subscriptions on
-        // an unresolved topic placeholder) point to one shared node.
-        foreach (var app in inventory.LogicApps)
-        {
-            var declared = new HashSet<string>();
-            foreach (var wf in app.Workflows)
-                if (HasNonServiceBusTrigger(wf.Trigger))
-                {
-                    var trig = wf.Trigger!;
-                    var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                    var trigId = SafeId("trig", $"{app.Name}_{trig.Source}_{trig.DisplayType}");
-                    if (declared.Add(trigId))
-                        sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
+                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
                     sb.AppendLine(EdgeLine(trigId, wfId, "Triggers"));
                 }
-        }
 
         sb.Append(ClassDefs);
         return sb.ToString();
@@ -262,12 +215,6 @@ public sealed partial class MermaidBuilder
         if (safe.Length == 0) safe = "node";
         return $"{prefix}_{safe}";
     }
-
-    /// <summary>True for triggers that need a dedicated trigger-source node (i.e. anything
-    /// other than a Service Bus trigger with a resolved entity name, which instead points
-    /// back to its existing topic/queue node).</summary>
-    private static bool HasNonServiceBusTrigger(TriggerInfo? trigger) =>
-        trigger is not null && !(trigger.Kind == "ServiceBus" && trigger.HasResolvedEntityName);
 
     private static string Esc(string s) =>
         s.Replace("\"", "'").Replace("<", "&lt;").Replace(">", "&gt;");
@@ -291,7 +238,8 @@ public sealed partial class MermaidBuilder
         var subtitle = node.IsUnresolved
             ? $"{TypeSubtitle[node.CallType]} · dynamic"
             : TypeSubtitle[node.CallType];
-        var label = $"{Esc(node.Label)}<br/><small>{subtitle}</small>";
+        var title = node.Path is null ? Esc(node.Label) : $"{Esc(node.Label)}{Esc(node.Path)}";
+        var label = $"{title}<br/><small>{subtitle}</small>";
 
         var showActions = node.CallType is CallType.Http or CallType.Unknown;
         if (showActions && node.ActionNames.Count > 0)
@@ -308,22 +256,32 @@ public sealed partial class MermaidBuilder
 
     // ── Target node registry ──────────────────────────────────────────────────
 
-    private sealed record TargetNode(string Id, string Label, CallType CallType, bool IsUnresolved)
+    private sealed record TargetNode(string Id, string Label, string? Path, CallType CallType, bool IsUnresolved)
     {
         public HashSet<string> ActionNames { get; } = new();
     }
 
-    private sealed class TargetRegistry
+    /// <summary>
+    /// Deduplicates external targets into diagram nodes. When <paramref name="groupByPath"/>
+    /// is true (Detail mode), HTTP targets are split into separate nodes per (host, path) —
+    /// e.g. distinct REST endpoints on the same host become distinct nodes — instead of
+    /// collapsing every action against a host into one node. Summary mode keeps the
+    /// coarser host-only grouping.
+    /// </summary>
+    private sealed class TargetRegistry(bool groupByPath = false)
     {
-        private readonly Dictionary<(CallType, string), TargetNode> _map = new();
+        private readonly Dictionary<(CallType, string, string?), TargetNode> _map = new();
+
+        private (CallType, string, string?) KeyFor(ExternalTarget target) =>
+            (target.CallType, target.Name, groupByPath ? target.Path : null);
 
         public void Register(ExternalTarget target, string? actionName = null)
         {
-            var key = (target.CallType, target.Name);
+            var key = KeyFor(target);
             if (!_map.TryGetValue(key, out var node))
             {
-                var nodeId = SafeId("t", $"{target.CallType}_{target.Name}");
-                node = new TargetNode(nodeId, target.Name, target.CallType,
+                var nodeId = SafeId("t", $"{target.CallType}_{target.Name}{(key.Item3 is not null ? "_" + key.Item3 : "")}");
+                node = new TargetNode(nodeId, target.Name, key.Item3, target.CallType,
                     IsUnresolved: target.RawExpression is not null);
                 _map[key] = node;
             }
@@ -332,7 +290,7 @@ public sealed partial class MermaidBuilder
         }
 
         public string? TryGetId(ExternalTarget target) =>
-            _map.TryGetValue((target.CallType, target.Name), out var node) ? node.Id : null;
+            _map.TryGetValue(KeyFor(target), out var node) ? node.Id : null;
 
         public IEnumerable<TargetNode> AllNodes() => _map.Values;
     }

@@ -354,7 +354,7 @@ public class MermaidBuilderTests
     };
 
     [Fact]
-    public void Detail_ServiceBusChain_SenderAndReceiverLinkedThroughQueue()
+    public void Detail_ServiceBusChain_SenderLinksToQueue_ReceiverGetsOwnTriggerNode()
     {
         var mmd = _builder.Build(SbChainInventory(), DiagramMode.Detail);
 
@@ -362,7 +362,7 @@ public class MermaidBuilderTests
         Assert.Contains("wf-publish", mmd);
         Assert.Contains("wf-process", mmd);
 
-        // The shared SB queue node must be present
+        // The shared SB queue node (from the sender's Send action) must be present
         Assert.Contains("orders-queue", mmd);
         Assert.Contains(":::servicebus", mmd);
 
@@ -371,13 +371,14 @@ public class MermaidBuilderTests
         Assert.True(lines.Any(l => l.Contains("wf_") && l.Contains("-->") && l.Contains("t_ServiceBus")),
             "Expected a sender → SB edge");
 
-        // SB node → receiver workflow
-        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-->") && l.Contains("wf_")),
-            "Expected a SB → receiver edge");
+        // Receiver gets its own dedicated trigger node (not the shared SB node)
+        Assert.Contains(":::trigger", mmd);
+        Assert.True(lines.Any(l => l.Contains("trig_") && l.Contains("-- Triggers -->") && l.Contains("wf_")),
+            "Expected a trigger node → receiver edge");
     }
 
     [Fact]
-    public void Summary_ServiceBusChain_BothAppsLinkedThroughQueue()
+    public void Summary_ServiceBusChain_SenderLinksToQueue_ReceiverGetsOwnTriggerNode()
     {
         var mmd = _builder.Build(SbChainInventory(), DiagramMode.Summary);
 
@@ -390,13 +391,14 @@ public class MermaidBuilderTests
         // Sender app → SB node
         Assert.True(lines.Any(l => l.Contains("app_lapp_sender") && l.Contains("-->") && l.Contains("t_ServiceBus")),
             "Expected sender app → SB edge");
-        // SB node → receiver app
-        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-->") && l.Contains("app_lapp_receiver")),
-            "Expected SB → receiver app edge");
+        // Receiver app gets its own trigger node (not the shared SB node)
+        Assert.Contains(":::trigger", mmd);
+        Assert.True(lines.Any(l => l.Contains("trig_") && l.Contains("-- Triggers -->") && l.Contains("app_lapp_receiver")),
+            "Expected trigger node → receiver app edge");
     }
 
     [Fact]
-    public void Detail_SbTriggeredWorkflow_WithNoSenderInFilter_StillShowsSbNode()
+    public void Detail_SbTriggeredWorkflow_WithNoSenderInFilter_GetsOwnTriggerNode_NoSharedSbNode()
     {
         // Only the receiver app is in the inventory (sender filtered out)
         var receiverOnly = new Inventory
@@ -423,11 +425,12 @@ public class MermaidBuilderTests
         };
         var mmd = _builder.Build(receiverOnly, DiagramMode.Detail);
 
-        // SB node declared even though no outbound edge points to it
+        // No outbound Send action exists, so the shared SB node is not declared —
+        // only the workflow's own trigger node, labelled with the queue name.
         Assert.Contains("orders-queue", mmd);
-        Assert.Contains(":::servicebus", mmd);
-        // Reverse edge exists
-        Assert.Contains("-->", mmd);
+        Assert.Contains(":::trigger", mmd);
+        Assert.DoesNotContain(":::servicebus", mmd);
+        Assert.Contains("Triggers", mmd);
     }
 
     [Fact]
@@ -435,6 +438,72 @@ public class MermaidBuilderTests
     {
         var mmd = _builder.Build(SbChainInventory(), DiagramMode.Summary);
         Assert.Contains("classDef servicebus", mmd);
+    }
+
+    private static Inventory SameHostDifferentPathsInventory() => new()
+    {
+        ScannedAt = DateTimeOffset.UtcNow,
+        LogicApps =
+        [
+            new LogicAppInfo
+            {
+                Name = "lapp-neoserve",
+                Workflows =
+                [
+                    new WorkflowInfo
+                    {
+                        Name = "wf-results", LogicAppName = "lapp-neoserve", IsStateful = true,
+                        Edges =
+                        [
+                            new CallEdge("Get_Results", CallType.Http,
+                                new ExternalTarget(CallType.Http, "neogenomics.exemplarelm.com", Path: "/api/results"),
+                                Method: "GET"),
+                        ],
+                    },
+                    new WorkflowInfo
+                    {
+                        Name = "wf-orders", LogicAppName = "lapp-neoserve", IsStateful = true,
+                        Edges =
+                        [
+                            new CallEdge("Post_Orders", CallType.Http,
+                                new ExternalTarget(CallType.Http, "neogenomics.exemplarelm.com", Path: "/api/orders"),
+                                Method: "POST"),
+                        ],
+                    },
+                ],
+            },
+        ],
+    };
+
+    [Fact]
+    public void Detail_HttpTargets_SameHostDifferentPaths_GetSeparateNodes()
+    {
+        var mmd = _builder.Build(SameHostDifferentPathsInventory(), DiagramMode.Detail);
+
+        var httpNodeDeclarations = mmd
+            .Split('\n')
+            .Where(l => l.Contains(":::http") && l.TrimStart().StartsWith("t_"))
+            .ToList();
+
+        Assert.Equal(2, httpNodeDeclarations.Count);
+        Assert.Contains(httpNodeDeclarations, l => l.Contains("neogenomics.exemplarelm.com/api/results"));
+        Assert.Contains(httpNodeDeclarations, l => l.Contains("neogenomics.exemplarelm.com/api/orders"));
+    }
+
+    [Fact]
+    public void Summary_HttpTargets_SameHostDifferentPaths_CollapseToOneNode()
+    {
+        var mmd = _builder.Build(SameHostDifferentPathsInventory(), DiagramMode.Summary);
+
+        var httpNodeDeclarations = mmd
+            .Split('\n')
+            .Where(l => l.Contains(":::http") && l.TrimStart().StartsWith("t_"))
+            .ToList();
+
+        Assert.Single(httpNodeDeclarations);
+        Assert.Contains("neogenomics.exemplarelm.com", httpNodeDeclarations[0]);
+        Assert.DoesNotContain("/api/results", httpNodeDeclarations[0]);
+        Assert.DoesNotContain("/api/orders", httpNodeDeclarations[0]);
     }
 
     [Fact]
@@ -527,12 +596,12 @@ public class MermaidBuilderTests
     }
 
     [Fact]
-    public void Detail_TwoSubscribersWithSamePlaceholderTrigger_ShareOneTriggerNode()
+    public void Detail_TwoSubscribersWithSamePlaceholderTrigger_GetSeparateTriggerNodes()
     {
         // Two workflows in the same Logic App both triggered by an unresolved
         // "<parameter:dxInfo_topicName>" topic (different subscriptions on the same
-        // topic) should share a single trigger-source node, with one "Triggers" edge
-        // to each workflow — not two duplicate-looking nodes.
+        // topic) each get their own dedicated trigger-source node — never shared
+        // between workflows, even when the label text is identical.
         var inv = new Inventory
         {
             ScannedAt = DateTimeOffset.UtcNow,
@@ -567,7 +636,7 @@ public class MermaidBuilderTests
 
         var nodeDeclarations = mmd.Split('\n')
             .Count(l => l.Contains("&lt;parameter:dxInfo_topicName&gt;") && l.Contains('['));
-        Assert.Equal(1, nodeDeclarations);
+        Assert.Equal(2, nodeDeclarations);
 
         var triggerEdges = mmd.Split('\n').Count(l => l.Contains("Triggers"));
         Assert.Equal(2, triggerEdges);
