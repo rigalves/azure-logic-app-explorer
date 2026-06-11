@@ -114,11 +114,20 @@ public sealed class LogicAppInfo
     public bool IsRunning { get; init; } = true;
 }
 
+/// <summary>An Azure Service Bus topic and its child subscriptions.</summary>
+public sealed class ServiceBusTopicInfo
+{
+    public required string Namespace { get; init; }
+    public required string TopicName { get; init; }
+    public required List<string> Subscriptions { get; init; }
+}
+
 public sealed class Inventory
 {
     public required List<LogicAppInfo> LogicApps { get; init; }
     public required DateTimeOffset ScannedAt { get; init; }
     public List<string> ScanErrors { get; init; } = [];
+    public List<ServiceBusTopicInfo> ServiceBusTopics { get; init; } = [];
 
     public static Inventory Empty =>
         new() { LogicApps = [], ScannedAt = DateTimeOffset.UtcNow };

@@ -185,6 +185,35 @@ public class AzureAccessTests
         Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
     }
 
+    /// <summary>
+    /// Probe F: ARM can list Service Bus namespaces, topics, and subscriptions in the
+    /// resource group. Zero namespaces/topics is acceptable — the call succeeding is the probe.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ProbeF_CanListServiceBusTopicsAndSubscriptions()
+    {
+        var namespaces = await _client.ListServiceBusNamespacesAsync(_opts.ResourceGroups[0]);
+        _out.WriteLine($"Found {namespaces.Count} Service Bus namespace(s):");
+
+        foreach (var ns in namespaces)
+        {
+            var topics = await _client.ListServiceBusTopicsAsync(_opts.ResourceGroups[0], ns);
+            _out.WriteLine($"  {ns}: {topics.Count} topic(s)");
+
+            foreach (var topic in topics)
+            {
+                var subscriptions = await _client.ListServiceBusSubscriptionsAsync(_opts.ResourceGroups[0], ns, topic);
+                _out.WriteLine($"    {topic}: {subscriptions.Count} subscription(s) — {string.Join(", ", subscriptions)}");
+            }
+        }
+
+        if (namespaces.Count == 0)
+            _out.WriteLine("(No Service Bus namespaces found in resource group. This is acceptable.)");
+
+        Assert.True(true);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void SkipIfNotConfigured()

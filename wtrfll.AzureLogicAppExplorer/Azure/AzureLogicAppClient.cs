@@ -20,6 +20,7 @@ public sealed class AzureLogicAppClient
 
     private const string ArmScope = "https://management.azure.com/.default";
     private const string ArmBase = "https://management.azure.com";
+    private const string ServiceBusApiVersion = "2021-11-01";
 
     public AzureLogicAppClient(
         HttpClient http,
@@ -103,6 +104,42 @@ public sealed class AzureLogicAppClient
     {
         var url = VfsFileUrl(resourceGroup, appName, "site/wwwroot/parameters.json");
         return await GetJsonOrNullAsync(url, $"{appName}: parameters.json", ct);
+    }
+
+    public async Task<List<string>> ListServiceBusNamespacesAsync(string resourceGroup, CancellationToken ct = default)
+    {
+        var url = $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
+                  $"/providers/Microsoft.ServiceBus/namespaces?api-version={ServiceBusApiVersion}";
+        var doc = await GetJsonAsync(url, "list Service Bus namespaces", ct);
+
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(ns => ns.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+            .Where(n => n.Length > 0)
+            .ToList();
+    }
+
+    public async Task<List<string>> ListServiceBusTopicsAsync(string resourceGroup, string namespaceName, CancellationToken ct = default)
+    {
+        var url = $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
+                  $"/providers/Microsoft.ServiceBus/namespaces/{namespaceName}/topics?api-version={ServiceBusApiVersion}";
+        var doc = await GetJsonAsync(url, $"{namespaceName}: list Service Bus topics", ct);
+
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(t => t.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+            .Where(n => n.Length > 0)
+            .ToList();
+    }
+
+    public async Task<List<string>> ListServiceBusSubscriptionsAsync(string resourceGroup, string namespaceName, string topicName, CancellationToken ct = default)
+    {
+        var url = $"{ArmBase}/subscriptions/{_opts.SubscriptionId}/resourceGroups/{resourceGroup}" +
+                  $"/providers/Microsoft.ServiceBus/namespaces/{namespaceName}/topics/{Uri.EscapeDataString(topicName)}/subscriptions?api-version={ServiceBusApiVersion}";
+        var doc = await GetJsonAsync(url, $"{namespaceName}/{topicName}: list Service Bus subscriptions", ct);
+
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(s => s.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+            .Where(n => n.Length > 0)
+            .ToList();
     }
 
     public async Task<List<(string Name, string ApiId)>> ListManagedConnectionsAsync(string resourceGroup, CancellationToken ct = default)

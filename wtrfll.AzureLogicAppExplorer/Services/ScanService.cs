@@ -106,17 +106,21 @@ public sealed class ScanService : IHostedService
 
             logicApps.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
+            var serviceBusTopics = await ScanServiceBusTopicsAsync(globalErrors, ct);
+
             _current = new Inventory
             {
                 LogicApps = logicApps,
                 ScannedAt = DateTimeOffset.UtcNow,
                 ScanErrors = globalErrors,
+                ServiceBusTopics = serviceBusTopics,
             };
 
             await PersistSnapshotAsync(_current, ct);
-            _logger.LogInformation("Scan complete. {Apps} apps, {Wfs} workflows.",
+            _logger.LogInformation("Scan complete. {Apps} apps, {Wfs} workflows, {Topics} Service Bus topic(s).",
                 logicApps.Count,
-                logicApps.Sum(a => a.Workflows.Count));
+                logicApps.Sum(a => a.Workflows.Count),
+                serviceBusTopics.Count);
         }
         catch (Exception ex)
         {
@@ -228,6 +232,76 @@ public sealed class ScanService : IHostedService
         if (root.TryGetProperty("kind", out var kind))
             return kind.GetString()?.Equals("Stateful", StringComparison.OrdinalIgnoreCase) ?? true;
         return true; // default assumption
+    }
+
+    // ── Service Bus topic/subscription scanning ──────────────────────────────────
+
+    private async Task<List<ServiceBusTopicInfo>> ScanServiceBusTopicsAsync(List<string> globalErrors, CancellationToken ct)
+    {
+        var result = new List<ServiceBusTopicInfo>();
+
+        foreach (var rg in _opts.ResourceGroups)
+        {
+            List<string> namespaces;
+            try
+            {
+                namespaces = await _client.ListServiceBusNamespacesAsync(rg, ct);
+            }
+            catch (Exception ex)
+            {
+                var msg = $"Could not list Service Bus namespaces in '{rg}': {ex.Message}";
+                _logger.LogWarning("{Msg}", msg);
+                globalErrors.Add(msg);
+                continue;
+            }
+
+            foreach (var ns in namespaces)
+            {
+                List<string> topics;
+                try
+                {
+                    topics = await _client.ListServiceBusTopicsAsync(rg, ns, ct);
+                }
+                catch (Exception ex)
+                {
+                    var msg = $"Could not list topics for Service Bus namespace '{ns}': {ex.Message}";
+                    _logger.LogWarning("{Msg}", msg);
+                    globalErrors.Add(msg);
+                    continue;
+                }
+
+                foreach (var topic in topics)
+                {
+                    List<string> subscriptions;
+                    try
+                    {
+                        subscriptions = await _client.ListServiceBusSubscriptionsAsync(rg, ns, topic, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        var msg = $"Could not list subscriptions for Service Bus topic '{ns}/{topic}': {ex.Message}";
+                        _logger.LogWarning("{Msg}", msg);
+                        globalErrors.Add(msg);
+                        continue;
+                    }
+
+                    result.Add(new ServiceBusTopicInfo
+                    {
+                        Namespace = ns,
+                        TopicName = topic,
+                        Subscriptions = subscriptions,
+                    });
+                }
+            }
+        }
+
+        result.Sort((a, b) =>
+        {
+            var nsCompare = string.Compare(a.Namespace, b.Namespace, StringComparison.OrdinalIgnoreCase);
+            return nsCompare != 0 ? nsCompare : string.Compare(a.TopicName, b.TopicName, StringComparison.OrdinalIgnoreCase);
+        });
+
+        return result;
     }
 
     // ── Snapshot persistence ──────────────────────────────────────────────────

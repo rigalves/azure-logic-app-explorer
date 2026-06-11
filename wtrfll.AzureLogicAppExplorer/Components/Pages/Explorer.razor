@@ -342,6 +342,56 @@
     </button>
 </div>
 
+@* ── Service Bus topic inventory ── *@
+<div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+    <details class="flex-grow-1 overflow-hidden">
+        <summary class="small fw-semibold mb-2" style="cursor:pointer;">
+            Service Bus Topics
+            (@Scan.CurrentInventory.ServiceBusTopics.Count topic(s)
+            across @Scan.CurrentInventory.ServiceBusTopics.Select(t => t.Namespace).Distinct().Count() namespace(s),
+            @Scan.CurrentInventory.ServiceBusTopics.Sum(t => t.Subscriptions.Count) subscription(s))
+        </summary>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover small">
+                <thead>
+                    <tr>
+                        <th>Namespace</th>
+                        <th>Topic</th>
+                        <th>Subscriptions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var topic in Scan.CurrentInventory.ServiceBusTopics)
+                    {
+                        <tr>
+                            <td class="text-muted">@topic.Namespace</td>
+                            <td class="text-muted">@topic.TopicName</td>
+                            @if (topic.Subscriptions.Count == 0)
+                            {
+                                <td class="text-muted fst-italic">no subscriptions</td>
+                            }
+                            else
+                            {
+                                <td>
+                                    @foreach (var sub in topic.Subscriptions)
+                                    {
+                                        <span class="badge bg-secondary text-white me-1 mb-1">@sub</span>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </details>
+    <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+            @onclick="DownloadServiceBusCsv"
+            disabled="@(Scan.CurrentInventory.ServiceBusTopics.Count == 0)">
+        Download CSV
+    </button>
+</div>
+
 @code {
     // ── Filter state ──────────────────────────────────────────────────────────
     private HashSet<string> _selectedApps = [];
@@ -597,6 +647,31 @@
         }
 
         var filename = "inventory-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".csv";
+        await JS.InvokeVoidAsync("azureLogicAppExplorer.downloadFile", filename, sb.ToString());
+    }
+
+    private async Task DownloadServiceBusCsv()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Namespace,Topic,Subscription");
+
+        foreach (var topic in Scan.CurrentInventory.ServiceBusTopics)
+        {
+            var ns = CsvEsc(topic.Namespace);
+            var topicName = CsvEsc(topic.TopicName);
+
+            if (topic.Subscriptions.Count == 0)
+            {
+                sb.AppendLine(string.Join(",", ns, topicName, ""));
+            }
+            else
+            {
+                foreach (var sub in topic.Subscriptions)
+                    sb.AppendLine(string.Join(",", ns, topicName, CsvEsc(sub)));
+            }
+        }
+
+        var filename = "servicebus-topics-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".csv";
         await JS.InvokeVoidAsync("azureLogicAppExplorer.downloadFile", filename, sb.ToString());
     }
 
