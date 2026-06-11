@@ -114,17 +114,23 @@ public sealed partial class MermaidBuilder
         }
 
         // Trigger-source nodes — every triggered workflow gets its own dedicated node
-        // (e.g. "External caller", "orders-queue / Queue Event"), never shared between
-        // workflows, with a "Triggers" edge to its parent Logic App.
+        // (e.g. "External caller", "orders-queue / Queue Event"), with a "Triggers" edge
+        // to its parent Logic App. Exceptions for Service Bus topic/queue triggers with a
+        // resolved entity name: (1) if another workflow already publishes/acts on the same
+        // entity, its existing :::servicebus target node is reused as the trigger source
+        // instead of a separate node; (2) otherwise, one trigger node is shared across
+        // every app/workflow triggered by the same entity.
+        var declaredTrigIds = new HashSet<string>();
+        var trigEdges = new HashSet<(string, string)>();
         foreach (var app in inventory.LogicApps)
         {
             var appId = SafeId("app", app.Name);
             foreach (var wf in app.Workflows)
                 if (wf.Trigger is { } trig)
                 {
-                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
-                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
-                    sb.AppendLine(EdgeLine(trigId, appId, "Triggers"));
+                    var trigId = ResolveTriggerNodeId(registry, app.Name, wf.Name, trig, sb, declaredTrigIds);
+                    if (trigEdges.Add((trigId, appId)))
+                        sb.AppendLine(EdgeLine(trigId, appId, "Triggers"));
                 }
         }
 
@@ -188,15 +194,19 @@ public sealed partial class MermaidBuilder
         }
 
         // Trigger-source nodes — every triggered workflow gets its own dedicated node
-        // (e.g. "External caller", "orders-queue / Queue Event"), never shared between
-        // workflows, with a "Triggers" edge to the workflow.
+        // (e.g. "External caller", "orders-queue / Queue Event"), with a "Triggers" edge
+        // to the workflow. Exceptions for Service Bus topic/queue triggers with a resolved
+        // entity name: (1) if another workflow already publishes/acts on the same entity,
+        // its existing :::servicebus target node is reused as the trigger source instead
+        // of a separate node; (2) otherwise, one trigger node is shared across every
+        // workflow triggered by the same entity.
+        var declaredTrigIds = new HashSet<string>();
         foreach (var app in inventory.LogicApps)
             foreach (var wf in app.Workflows)
                 if (wf.Trigger is { } trig)
                 {
                     var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
-                    var trigId = SafeId("trig", $"{app.Name}_{wf.Name}");
-                    sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+                    var trigId = ResolveTriggerNodeId(registry, app.Name, wf.Name, trig, sb, declaredTrigIds);
                     sb.AppendLine(EdgeLine(trigId, wfId, "Triggers"));
                 }
 
@@ -211,6 +221,41 @@ public sealed partial class MermaidBuilder
         var safe = NonAlphanumeric().Replace(name, "_").TrimStart('_');
         if (safe.Length == 0) safe = "node";
         return $"{prefix}_{safe}";
+    }
+
+    /// <summary>
+    /// Returns the diagram node id for a workflow's trigger source. Service Bus
+    /// topic/queue triggers with a resolved entity name get a shared id derived from
+    /// the entity itself (so every workflow/app subscribed to the same topic or queue
+    /// points at the same node); all other triggers get a per-workflow id.
+    /// </summary>
+    private static string TriggerNodeId(string appName, string wfName, TriggerInfo trig) =>
+        trig.Kind == "ServiceBus" && trig.HasResolvedEntityName
+            ? SafeId("trig", $"sb_{trig.EntityKind}_{trig.EntityName}")
+            : SafeId("trig", $"{appName}_{wfName}");
+
+    /// <summary>
+    /// Resolves the diagram node id to use as a workflow's trigger source, declaring a new
+    /// :::trigger node if needed. For Service Bus topic/queue triggers with a resolved
+    /// entity name, an existing :::servicebus target node for the same entity (registered
+    /// from another workflow's outbound actions on it) is reused instead of declaring a
+    /// separate trigger node — the topic/queue is the same physical entity either way.
+    /// </summary>
+    private static string ResolveTriggerNodeId(
+        TargetRegistry registry, string appName, string wfName, TriggerInfo trig,
+        StringBuilder sb, HashSet<string> declaredTrigIds)
+    {
+        if (trig.Kind == "ServiceBus" && trig.HasResolvedEntityName)
+        {
+            var sbNodeId = registry.TryGetId(new ExternalTarget(CallType.ServiceBus, trig.EntityName!));
+            if (sbNodeId is not null)
+                return sbNodeId;
+        }
+
+        var trigId = TriggerNodeId(appName, wfName, trig);
+        if (declaredTrigIds.Add(trigId))
+            sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+        return trigId;
     }
 
     private static string Esc(string s) =>

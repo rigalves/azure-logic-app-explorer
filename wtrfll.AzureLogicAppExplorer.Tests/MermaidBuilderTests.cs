@@ -353,7 +353,7 @@ public class MermaidBuilderTests
     };
 
     [Fact]
-    public void Detail_ServiceBusChain_SenderLinksToQueue_ReceiverGetsOwnTriggerNode()
+    public void Detail_ServiceBusChain_SenderLinksToQueue_ReceiverTriggerReusesServiceBusNode()
     {
         var mmd = _builder.Build(SbChainInventory(), DiagramMode.Detail);
 
@@ -365,19 +365,19 @@ public class MermaidBuilderTests
         Assert.Contains("orders-queue", mmd);
         Assert.Contains(":::servicebus", mmd);
 
-        // Sender workflow → SB node
         var lines = mmd.Split('\n');
+        // Sender workflow → SB node
         Assert.True(lines.Any(l => l.Contains("wf_") && l.Contains("-->") && l.Contains("t_ServiceBus")),
             "Expected a sender → SB edge");
 
-        // Receiver gets its own dedicated trigger node (not the shared SB node)
-        Assert.Contains(":::trigger", mmd);
-        Assert.True(lines.Any(l => l.Contains("trig_") && l.Contains("-- Triggers -->") && l.Contains("wf_")),
-            "Expected a trigger node → receiver edge");
+        // Receiver's trigger reuses the shared SB node — no separate :::trigger node for it
+        Assert.DoesNotContain(":::trigger", mmd);
+        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-- Triggers -->") && l.Contains("wf_")),
+            "Expected the SB node → receiver edge labelled 'Triggers'");
     }
 
     [Fact]
-    public void Summary_ServiceBusChain_SenderLinksToQueue_ReceiverGetsOwnTriggerNode()
+    public void Summary_ServiceBusChain_SenderLinksToQueue_ReceiverTriggerReusesServiceBusNode()
     {
         var mmd = _builder.Build(SbChainInventory(), DiagramMode.Summary);
 
@@ -390,10 +390,10 @@ public class MermaidBuilderTests
         // Sender app → SB node
         Assert.True(lines.Any(l => l.Contains("app_lapp_sender") && l.Contains("-->") && l.Contains("t_ServiceBus")),
             "Expected sender app → SB edge");
-        // Receiver app gets its own trigger node (not the shared SB node)
-        Assert.Contains(":::trigger", mmd);
-        Assert.True(lines.Any(l => l.Contains("trig_") && l.Contains("-- Triggers -->") && l.Contains("app_lapp_receiver")),
-            "Expected trigger node → receiver app edge");
+        // Receiver app's trigger reuses the shared SB node — no separate :::trigger node
+        Assert.DoesNotContain(":::trigger", mmd);
+        Assert.True(lines.Any(l => l.Contains("t_ServiceBus") && l.Contains("-- Triggers -->") && l.Contains("app_lapp_receiver")),
+            "Expected the SB node → receiver app edge labelled 'Triggers'");
     }
 
     [Fact]
@@ -639,6 +639,197 @@ public class MermaidBuilderTests
 
         var triggerEdges = mmd.Split('\n').Count(l => l.Contains("Triggers"));
         Assert.Equal(2, triggerEdges);
+    }
+
+    // ── Shared Service Bus trigger nodes ────────────────────────────────────────
+
+    [Fact]
+    public void Detail_TwoWorkflowsTriggeredBySameTopic_ShareOneTriggerNode()
+    {
+        // Two workflows (different apps) both subscribed to "orders-topic" must share
+        // a single trigger node, with two separate "Triggers" edges fanning out.
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-a",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-a",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                    ],
+                },
+                new LogicAppInfo
+                {
+                    Name = "lapp-b",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-b",
+                            LogicAppName = "lapp-b",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+        var lines = mmd.Split('\n');
+
+        var triggerNodeDeclarations = lines.Count(l => l.Contains("orders-topic") && l.Contains(":::trigger"));
+        Assert.Equal(1, triggerNodeDeclarations);
+
+        var triggerEdges = lines.Count(l => l.Contains("-- Triggers -->"));
+        Assert.Equal(2, triggerEdges);
+    }
+
+    [Fact]
+    public void Summary_TwoAppsTriggeredBySameTopic_ShareOneTriggerNode()
+    {
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-a",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-a",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                    ],
+                },
+                new LogicAppInfo
+                {
+                    Name = "lapp-b",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-b",
+                            LogicAppName = "lapp-b",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Summary);
+        var lines = mmd.Split('\n');
+
+        var triggerNodeDeclarations = lines.Count(l => l.Contains("orders-topic") && l.Contains(":::trigger"));
+        Assert.Equal(1, triggerNodeDeclarations);
+
+        var triggerEdges = lines.Count(l => l.Contains("-- Triggers -->"));
+        Assert.Equal(2, triggerEdges);
+        Assert.True(triggerEdges == lines.Count(l => l.Contains("-- Triggers -->") && (l.Contains("app_lapp_a") || l.Contains("app_lapp_b"))));
+    }
+
+    [Fact]
+    public void Detail_TwoWorkflowsSameAppTriggeredBySameTopic_ShareOneTriggerNode_NoDuplicateEdges()
+    {
+        // Two workflows in the same app, same topic — node shared, and each workflow
+        // still gets its own "Triggers" edge (no duplicate edges collapsed away).
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-a",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-a",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                        new WorkflowInfo
+                        {
+                            Name = "wf-b",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+        var lines = mmd.Split('\n');
+
+        var triggerNodeDeclarations = lines.Count(l => l.Contains("orders-topic") && l.Contains(":::trigger"));
+        Assert.Equal(1, triggerNodeDeclarations);
+
+        var triggerEdges = lines.Count(l => l.Contains("-- Triggers -->"));
+        Assert.Equal(2, triggerEdges);
+    }
+
+    [Fact]
+    public void Detail_DifferentTopics_GetSeparateTriggerNodes()
+    {
+        var inv = new Inventory
+        {
+            ScannedAt = DateTimeOffset.UtcNow,
+            LogicApps =
+            [
+                new LogicAppInfo
+                {
+                    Name = "lapp-a",
+                    Workflows =
+                    [
+                        new WorkflowInfo
+                        {
+                            Name = "wf-a",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "orders-topic", "Topic"),
+                        },
+                        new WorkflowInfo
+                        {
+                            Name = "wf-b",
+                            LogicAppName = "lapp-a",
+                            IsStateful = true,
+                            Edges = [],
+                            Trigger = new TriggerInfo("ServiceBus", "shipping-topic", "Topic"),
+                        },
+                    ],
+                },
+            ],
+        };
+        var mmd = _builder.Build(inv, DiagramMode.Detail);
+        var lines = mmd.Split('\n');
+
+        Assert.Equal(1, lines.Count(l => l.Contains("orders-topic") && l.Contains(":::trigger")));
+        Assert.Equal(1, lines.Count(l => l.Contains("shipping-topic") && l.Contains(":::trigger")));
+        Assert.Equal(2, lines.Count(l => l.Contains("-- Triggers -->")));
     }
 
     // ── Node ID safety ────────────────────────────────────────────────────────

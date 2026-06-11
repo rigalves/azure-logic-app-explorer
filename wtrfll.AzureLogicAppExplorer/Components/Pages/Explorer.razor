@@ -616,25 +616,22 @@
     private async Task DownloadCsv()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Logic App,Workflow,Classification,Domain,Trigger Type,Triggered By,Trigger Kind,Trigger Entity,Trigger Method,Interactions");
+        sb.AppendLine("Logic App,Workflow,Class,Domain,Trigger,Triggered By,Interactions");
 
         foreach (var app in FilteredInventory.LogicApps)
         {
             foreach (var wf in app.Workflows)
             {
-                var appName        = CsvEsc(app.Name);
+                var appName        = CsvEsc(app.IsRunning ? app.Name : $"{app.Name} (stopped)");
                 var wfName         = CsvEsc(wf.Name);
                 var classification = wf.Classification.ToString();
                 var domain         = CsvEsc(wf.Domain ?? string.Empty);
-                var triggerType    = CsvEsc(wf.Trigger?.DisplayType ?? string.Empty);
+                var trigger        = CsvEsc(wf.Trigger?.DisplayType ?? string.Empty);
                 var triggeredBy    = CsvEsc(wf.Trigger?.Source ?? string.Empty);
-                var triggerKind    = CsvEsc(wf.Trigger?.Kind   ?? string.Empty);
-                var triggerEntity  = CsvEsc(wf.Trigger?.EntityName ?? string.Empty);
-                var triggerMethod  = CsvEsc(wf.Trigger?.Method ?? string.Empty);
 
                 var interactions = wf.Edges.Count == 0
                     ? string.Empty
-                    : string.Join("; ", BuildInteractions(wf).Select(i =>
+                    : string.Join("\n", BuildInteractions(wf).Select(i =>
                     {
                         var callType = i.CallType.ToString() + (i.Detail is not null ? $" {i.Detail}" : "");
                         var target = i.RawExpression ?? i.Target;
@@ -642,7 +639,7 @@
                         return $"{callType}: {target}{suffix}";
                     }));
 
-                sb.AppendLine(string.Join(",", appName, wfName, classification, domain, triggerType, triggeredBy, triggerKind, triggerEntity, triggerMethod, CsvEsc(interactions)));
+                sb.AppendLine(string.Join(",", appName, wfName, classification, domain, trigger, triggeredBy, CsvEsc(interactions)));
             }
         }
 
@@ -653,22 +650,15 @@
     private async Task DownloadServiceBusCsv()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Namespace,Topic,Subscription");
+        sb.AppendLine("Namespace,Topic,Subscriptions");
 
         foreach (var topic in Scan.CurrentInventory.ServiceBusTopics)
         {
             var ns = CsvEsc(topic.Namespace);
             var topicName = CsvEsc(topic.TopicName);
+            var subscriptions = CsvEsc(string.Join("\n", topic.Subscriptions));
 
-            if (topic.Subscriptions.Count == 0)
-            {
-                sb.AppendLine(string.Join(",", ns, topicName, ""));
-            }
-            else
-            {
-                foreach (var sub in topic.Subscriptions)
-                    sb.AppendLine(string.Join(",", ns, topicName, CsvEsc(sub)));
-            }
+            sb.AppendLine(string.Join(",", ns, topicName, subscriptions));
         }
 
         var filename = "servicebus-topics-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".csv";
