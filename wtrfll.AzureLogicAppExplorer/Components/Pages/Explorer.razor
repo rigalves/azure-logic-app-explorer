@@ -288,7 +288,7 @@
                         @foreach (var wf in app.Workflows)
                         {
                             <tr>
-                                <td class="text-muted">@app.Name</td>
+                                <td class="text-muted">@(app.IsRunning ? app.Name : $"{app.Name} (stopped)")</td>
                                 <td class="text-muted">@wf.Name</td>
                                 <td><span class="badge @ClassificationBadgeClass(wf.Classification)">@wf.Classification</span></td>
                                 <td class="text-muted">@(wf.Domain ?? "")</td>

@@ -192,7 +192,7 @@ public class MermaidBuilderTests
     }
 
     [Fact]
-    public void Summary_StoppedApp_HasStoppedClassAndLabel()
+    public void Summary_StoppedApp_HasStoppedSuffixInName()
     {
         var inv = new Inventory
         {
@@ -203,16 +203,15 @@ public class MermaidBuilderTests
             ],
         };
         var mmd = _builder.Build(inv, DiagramMode.Summary);
-        Assert.Contains(":::logicappstopped", mmd);
-        Assert.Contains("Stopped", mmd);
-        Assert.Contains("classDef logicappstopped", mmd);
+        Assert.Contains("lapp-stopped (stopped)", mmd);
+        Assert.Contains(":::logicapp", mmd);
     }
 
     [Fact]
-    public void Summary_RunningApp_DoesNotGetStoppedClass()
+    public void Summary_RunningApp_HasNoStoppedSuffix()
     {
         var mmd = _builder.Build(TwoAppInventory(), DiagramMode.Summary);
-        Assert.DoesNotContain(":::logicappstopped", mmd);
+        Assert.DoesNotContain("(stopped)", mmd);
     }
 
     [Fact]
