@@ -197,15 +197,15 @@
     <div class="card-body p-2">
         <div class="d-flex flex-wrap align-items-center gap-3">
             <small class="fw-semibold text-muted">Legend</small>
-            @foreach (var item in LegendItems)
+            @foreach (var style in DiagramPalette.All)
             {
                 <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="checkbox" id="legend_@item.ClassName"
-                           checked="@(!_hiddenLegendTypes.Contains(item.ClassName))"
-                           @onchange="e => ToggleLegend(item.ClassName, (bool)e.Value!)" />
-                    <label class="form-check-label small d-inline-flex align-items-center gap-1" for="legend_@item.ClassName">
-                        <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background-color:@item.Color;"></span>
-                        @item.Label
+                    <input class="form-check-input" type="checkbox" id="legend_@style.MermaidClass"
+                           checked="@(!_hiddenLegendTypes.Contains(style.MermaidClass))"
+                           @onchange="e => ToggleLegend(style.MermaidClass, (bool)e.Value!)" />
+                    <label class="form-check-label small d-inline-flex align-items-center gap-1" for="legend_@style.MermaidClass">
+                        <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background-color:@style.Fill;"></span>
+                        @style.LegendLabel
                     </label>
                 </div>
             }
@@ -412,24 +412,8 @@
 
     // ── Legend state ─────────────────────────────────────────────────────────
 
-    private sealed record LegendItem(string ClassName, string Label, string Color);
-
-    private static readonly List<LegendItem> LegendItems =
-    [
-        new("logicapp",       "Logic App",         "#0d6efd"),
-        new("workflow",       "Workflow",          "#0dcaf0"),
-        new("http",           "HTTP / API",        "#6c757d"),
-        new("funcapp",        "Azure Function",    "#198754"),
-        new("salesforce",     "Salesforce",        "#00A1E0"),
-        new("managed",        "Managed Connector", "#6f42c1"),
-        new("serviceprovider","Built-in Connector","#fd7e14"),
-        new("servicebus",     "Service Bus",       "#f0ad4e"),
-        new("childwf",        "Child Workflow",    "#20c997"),
-        new("keyvault",       "Key Vault",         "#dc3545"),
-        new("trigger",        "Trigger Source",    "#6610f2"),
-    ];
-
-    // Hidden by default: Key Vault nodes are usually noise for flow diagrams
+    // Legend rows + swatch colours come from DiagramPalette.All. Hidden by default:
+    // Key Vault nodes are usually noise for flow diagrams.
     private readonly HashSet<string> _hiddenLegendTypes = ["keyvault"];
 
     // ── Derived lists ─────────────────────────────────────────────────────────
@@ -704,17 +688,8 @@
 
     // ── Styling ───────────────────────────────────────────────────────────────
 
-    private static string BadgeClass(CallType t) => t switch
-    {
-        CallType.Salesforce       => "bg-info text-dark",
-        CallType.Http             => "bg-secondary",
-        CallType.Function         => "bg-success",
-        CallType.ManagedConnector => "bg-primary",
-        CallType.ServiceProvider  => "bg-warning text-dark",
-        CallType.ChildWorkflow    => "bg-success",
-        CallType.KeyVault         => "bg-danger",
-        _                         => "bg-dark",
-    };
+    // Badge colour comes from the shared palette (keyed on the call type's node kind).
+    private static string BadgeClass(CallType t) => DiagramPalette.For(t).BadgeClass ?? "bg-dark";
 
     private static string ClassificationBadgeClass(WorkflowClassification c) => c switch
     {

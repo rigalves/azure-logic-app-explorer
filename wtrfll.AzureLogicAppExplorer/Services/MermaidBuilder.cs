@@ -24,46 +24,11 @@ public sealed partial class MermaidBuilder
 
     private const string LinearCurveDirective = "%%{init: {'flowchart': {'curve': 'stepAfter'}}}%%\n";
 
-    private static readonly Dictionary<CallType, string> TypeClass = new()
-    {
-        [CallType.Http]             = "http",
-        [CallType.Function]         = "funcapp",
-        [CallType.Salesforce]       = "salesforce",
-        [CallType.ManagedConnector] = "managed",
-        [CallType.ServiceProvider]  = "serviceprovider",
-        [CallType.ServiceBus]       = "servicebus",
-        [CallType.ChildWorkflow]    = "childwf",
-        [CallType.KeyVault]         = "keyvault",
-        [CallType.Unknown]          = "http",
-    };
-
-    private static readonly Dictionary<CallType, string> TypeSubtitle = new()
-    {
-        [CallType.Http]             = "HTTP",
-        [CallType.Function]         = "Azure Function",
-        [CallType.Salesforce]       = "Salesforce",
-        [CallType.ManagedConnector] = "Managed Connector",
-        [CallType.ServiceProvider]  = "Built-in Connector",
-        [CallType.ServiceBus]       = "Service Bus",
-        [CallType.ChildWorkflow]    = "Child Workflow",
-        [CallType.KeyVault]         = "Key Vault",
-        [CallType.Unknown]          = "HTTP",
-    };
-
-    private const string ClassDefs = """
-
-        classDef logicapp      fill:#0d6efd,color:#fff,stroke:#0a58ca,stroke-width:2px
-        classDef workflow      fill:#0dcaf0,color:#000,stroke:#0aa2c0,stroke-width:1px
-        classDef salesforce    fill:#00A1E0,color:#fff,stroke:#0074a2,stroke-width:2px
-        classDef http          fill:#6c757d,color:#fff,stroke:#495057
-        classDef funcapp       fill:#198754,color:#fff,stroke:#146c43
-        classDef managed       fill:#6f42c1,color:#fff,stroke:#5a2d91
-        classDef serviceprovider fill:#fd7e14,color:#000,stroke:#d45e00
-        classDef servicebus    fill:#f0ad4e,color:#000,stroke:#ec971f,stroke-width:2px
-        classDef childwf       fill:#20c997,color:#000,stroke:#17a589
-        classDef keyvault      fill:#dc3545,color:#fff,stroke:#a02530
-        classDef trigger       fill:#6610f2,color:#fff,stroke:#4d0bb8
-    """;
+    // Mermaid class names for the structural node kinds, sourced from the palette so the
+    // ":::class" references here always match the generated classDef block.
+    private static readonly string LogicAppClass = DiagramPalette.For(NodeKind.LogicApp).MermaidClass;
+    private static readonly string WorkflowClass = DiagramPalette.For(NodeKind.Workflow).MermaidClass;
+    private static readonly string TriggerClass  = DiagramPalette.For(NodeKind.TriggerSource).MermaidClass;
 
     public string Build(Inventory inventory, DiagramMode mode) =>
         mode == DiagramMode.Summary ? BuildSummary(inventory) : BuildDetail(inventory);
@@ -85,7 +50,7 @@ public sealed partial class MermaidBuilder
             var wfCount = app.Workflows.Count;
             var subtitle = $"{wfCount} workflow{(wfCount == 1 ? "" : "s")}";
             var displayName = app.IsRunning ? app.Name : $"{app.Name} (stopped)";
-            sb.AppendLine($"    {appId}[\"{Esc(displayName)}<br/><small>{subtitle}</small>\"]:::logicapp");
+            sb.AppendLine($"    {appId}[\"{Esc(displayName)}<br/><small>{subtitle}</small>\"]:::{LogicAppClass}");
 
             foreach (var wf in app.Workflows)
                 foreach (var edge in wf.Edges)
@@ -95,7 +60,7 @@ public sealed partial class MermaidBuilder
         // Declare target nodes
         sb.AppendLine();
         foreach (var node in registry.AllNodes())
-            sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
+            sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{DiagramPalette.For(node.CallType).MermaidClass}");
 
         // Outbound edges — deduplicated per (app, target, label)
         sb.AppendLine();
@@ -134,7 +99,7 @@ public sealed partial class MermaidBuilder
                 }
         }
 
-        sb.Append(ClassDefs);
+        sb.Append(DiagramPalette.ClassDefs());
         return sb.ToString();
     }
 
@@ -163,7 +128,7 @@ public sealed partial class MermaidBuilder
             {
                 var wfId = SafeId("wf", $"{app.Name}_{wf.Name}");
                 var subtitle = multiApp ? Esc(app.Name) : "Workflow";
-                sb.AppendLine($"    {wfId}[\"{Esc(wf.Name)}<br/><small>{subtitle}</small>\"]:::workflow");
+                sb.AppendLine($"    {wfId}[\"{Esc(wf.Name)}<br/><small>{subtitle}</small>\"]:::{WorkflowClass}");
 
                 foreach (var edge in wf.Edges)
                     registry.Register(edge.Target, edge.ActionName);
@@ -173,7 +138,7 @@ public sealed partial class MermaidBuilder
         // Declare target nodes
         sb.AppendLine();
         foreach (var node in registry.AllNodes())
-            sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{TypeClass[node.CallType]}");
+            sb.AppendLine($"    {node.Id}[\"{NodeLabel(node)}\"]:::{DiagramPalette.For(node.CallType).MermaidClass}");
 
         // Outbound edges — deduplicated per (workflow, target, label)
         sb.AppendLine();
@@ -210,7 +175,7 @@ public sealed partial class MermaidBuilder
                     sb.AppendLine(EdgeLine(trigId, wfId, "Triggers"));
                 }
 
-        sb.Append(ClassDefs);
+        sb.Append(DiagramPalette.ClassDefs());
         return sb.ToString();
     }
 
@@ -254,7 +219,7 @@ public sealed partial class MermaidBuilder
 
         var trigId = TriggerNodeId(appName, wfName, trig);
         if (declaredTrigIds.Add(trigId))
-            sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::trigger");
+            sb.AppendLine($"    {trigId}[\"{Esc(trig.Source)}<br/><small>{Esc(trig.DisplayType)}</small>\"]:::{TriggerClass}");
         return trigId;
     }
 
@@ -277,9 +242,10 @@ public sealed partial class MermaidBuilder
 
     private static string NodeLabel(TargetNode node)
     {
+        var nodeSubtitle = DiagramPalette.For(node.CallType).NodeSubtitle;
         var subtitle = node.IsUnresolved
-            ? $"{TypeSubtitle[node.CallType]} · dynamic"
-            : TypeSubtitle[node.CallType];
+            ? $"{nodeSubtitle} · dynamic"
+            : nodeSubtitle;
         var title = node.Path is null ? Esc(node.Label) : $"{Esc(node.Label)}{Esc(node.Path)}";
         var label = $"{title}<br/><small>{subtitle}</small>";
 
